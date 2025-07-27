@@ -1,0 +1,72 @@
+# 프로젝트 유형 분류 설정
+# 이 파일은 프로젝트 자료를 분석하여 PainKiller/Vitamin/Balanced 유형을 분류하는 기준을 정의합니다.
+classification:
+  # 신뢰도 임계값 (0.0 - 1.0)
+  # 이 값보다 낮으면 자동으로 Balanced 유형으로 분류되고 경고 메시지가 표시됩니다.
+  # 기본값: 0.7 (70% 신뢰도)
+  confidence_threshold: 0.7
+  
+  # 분류 알고리즘 설정
+  algorithm:
+    # 키워드 매칭 가중치 (전체 점수에서 키워드 매칭이 차지하는 비중)
+    keyword_weight: 0.6
+    # 컨텍스트 분석 가중치 (전체 점수에서 문맥 분석이 차지하는 비중)
+    context_weight: 0.4
+    # 최소 키워드 매칭 수 (분류를 위한 최소 키워드 매칭 개수)
+    min_keyword_matches: 2
+  
+  # PainKiller 유형 키워드 (문제 해결형)
+  painkiller_keywords:
+    - "문제 해결"
+    - "효율성 개선"
+    - "비용 절감"
+    - "생산성 향상"
+    - "자동화"
+    - "시간 단축"
+    - "오류 감소"
+    - "프로세스 개선"
+    - "업무 효율"
+    - "리소스 최적화"
+    - "pain point"
+    - "solution"
+    - "efficiency"
+    - "cost reduction"
+    - "productivity"
+    - "automation"
+    - "optimization"
+    - "streamline"
+    - "eliminate"
+    - "reduce"
+  
+  # Vitamin 유형 키워드 (개선형)
+  vitamin_keywords:
+    - "사용자 경험"
+    - "혁신"
+    - "창의성"
+    - "즐거움"
+    - "편의성"
+    - "만족도"
+    - "참여도"
+    - "소셜"
+    - "커뮤니티"
+    - "엔터테인먼트"
+    - "게임화"
+    - "개인화"
+    - "맞춤형"
+    - "user experience"
+    - "innovation"
+    - "creativity"
+    - "engagement"
+    - "social"
+    - "community"
+    - "entertainment"
+    - "personalization"
+    - "customization"
+    - "fun"
+    - "enjoyment"
+  
+  # 가중치 설정 (키워드 매칭 시 적용)
+  keyword_weights:
+    high_impact: 1.0      # 핵심 키워드
+    medium_impact: 0.7    # 관련 키워드
+    low_impact: 0.4       # 간접 관련 키워드
