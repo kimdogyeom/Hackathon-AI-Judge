@@ -34,10 +34,9 @@ def main():
     # user_input = user_upload_chain.invoke()
 
     # 이곳에 문서의 예시 링크를 넣어주세요
-    video_uri = ""
-    document_uri = ""
-    presentation_uri = ""
-
+    video_uri = ""  # 비어있으면 스킵
+    document_uri = "s3://victor.kim-temporary/hackathon/ongi_project_description.txt"
+    presentation_uri = "s3://victor.kim-temporary/hackathon/carenity.pdf"
     # 입력된 데이터 프로세싱(분석)
     user_input = {
         "video_uri": video_uri,
@@ -50,21 +49,13 @@ def main():
     presentation_analysis = PresentationAnalysis()
     document_analysis = DocumentAnalysis()
 
-    # 각 분석기에 해당하는 URI를 전달하는 입력 구성
-    input_analysis_chain = RunnableParallel({
-        "video_analysis": video_analysis,
-        "presentation_analysis": presentation_analysis,
-        "document_analysis": document_analysis
-    })
-
-    # 각 분석기에 s3_uri를 포함한 딕셔너리 전달
-    analysis_input = {
-        "video_analysis": {"s3_uri": user_input["video_uri"]},
-        "document_analysis": {"s3_uri": user_input["document_uri"]},
-        "presentation_analysis": {"s3_uri": user_input["presentation_uri"]}
+    # 각 분석기를 개별적으로 실행
+    evaluator_chain_input = {
+        "video_analysis": video_analysis.invoke({"s3_uri": user_input["video_uri"]}),
+        "document_analysis": document_analysis.invoke({"s3_uri": user_input["document_uri"]}),
+        "presentation_analysis": presentation_analysis.invoke({"s3_uri": user_input["presentation_uri"]})
     }
-
-    evaluator_chain_input = input_analysis_chain.invoke(analysis_input)
+    print(f"evaluator_chain_input 확인 : {evaluator_chain_input}")
 
     # 프로젝트 유형 분류기 실행
     classifier = ProjectTypeClassifier()
