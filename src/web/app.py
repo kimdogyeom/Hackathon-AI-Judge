@@ -37,8 +37,7 @@ from src.config.config_manager import get_config_manager
 def main():
     """메인 함수"""
     st.set_page_config(
-        page_title="프로젝트 평가 시스템",
-        page_icon="📊",
+        page_title="해커톤 AI 심사",
         layout="wide"
     )
     
@@ -115,18 +114,18 @@ def render_upload_page():
         # 파일 업로드
         document_file = st.file_uploader(
             "📄 프로젝트 문서 (TXT/DOC/DOCX/RTF)",
-            type=['txt', 'doc', 'docx', 'rtf'],
+            type=['txt', 'doc', 'docx'],
             help="프로젝트 설명이 포함된 문서 파일을 업로드하세요"
         )
         
         presentation_file = st.file_uploader(
-            "📊 발표자료 (PDF/이미지)",
-            type=['pdf', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'webp'],
+            "🎙️ 발표자료 (PDF/이미지)",
+            type=['pdf', 'jpg', 'jpeg', 'png'],
             help="프로젝트 발표자료 PDF 파일 또는 이미지 파일을 업로드하세요"
         )
         
         video_file = st.file_uploader(
-            "🎥 동영상 (MP4)",
+            "🎥 시연영상 (MP4)",
             type=['mp4'],
             help="프로젝트 소개 동영상을 업로드하세요"
         )
@@ -140,7 +139,7 @@ def render_upload_page():
                         st.session_state.analysis_results = results
                         st.success("✅ 분석이 완료되었습니다!")
                         
-                        # 3초 후 자동으로 결과 확인 페이지로 이동
+                        # 2초 후 자동으로 결과 확인 페이지로 이동
                         import time
                         time.sleep(2)
                         st.session_state.current_page = "결과 확인"
@@ -154,9 +153,9 @@ def render_upload_page():
         st.subheader("📋 업로드 가이드")
         st.info("""
         **지원 파일 형식:**
-        - 문서: TXT, DOC, DOCX, RTF (최대 100MB)
-        - 발표자료: PDF, JPG, PNG, GIF 등 이미지 (최대 200MB)
-        - 동영상: MP4, MOV, AVI 등 (최대 500MB)
+        - 문서: TXT, DOC, DOCX (최대 100MB)
+        - 발표자료: PDF, PNG 등 이미지 (최대 200MB)
+        - 시연영상: MP4 (최대 500MB)
         
         **권장사항:**
         - 최소 1개 이상의 파일 업로드
@@ -372,33 +371,25 @@ def run_analysis(document_file, presentation_file, video_file):
         # 4단계: 최종 점수 계산
         with step_status.container():
             st.write("**현재 단계:** 최종 점수 계산")
-            st.write("- 프로젝트 유형에 따른 가중치를 적용합니다")
             st.write("- 최종 종합 점수를 계산합니다")
         status_text.text("4/4 최종 점수 계산 중...")
         progress_bar.progress(100)
         time.sleep(1)
         
-        # 점수 추출 및 가중치 적용
+        # 점수 추출
         config_manager = get_config_manager()
         project_type = classification_result['project_type']
-        weights = config_manager.get_weights(project_type)
-        
+
         # 체인 실행기로 점수 추출 및 계산
         scores = executor.get_scores(evaluation_results)
-        weighted_scores = executor.apply_weights(scores, weights)
-        final_score = executor.calculate_final_score(weighted_scores)
-        
+
         # 결과 구성
         results = {
             'timestamp': datetime.now().isoformat(),
             'classification': classification_result,
             'evaluation_results': evaluation_results,
             'scores': scores,
-            'weights': weights,
-            'weighted_scores': weighted_scores,
-            'final_score': final_score,
             'project_type': project_type,
-            'weight_summary': f"{project_type} 유형 가중치 적용됨",
             'uploaded_files': {
                 'document': document_file.name if document_file else None,
                 'presentation': presentation_file.name if presentation_file else None,
@@ -472,9 +463,7 @@ def render_results_page():
     st.subheader("📈 평가 결과 시각화")
     
     scores = results.get('scores', {})
-    weighted_scores = results.get('weighted_scores', {})
-    weights = results.get('weights', {})
-    
+
     # 평가 항목 한국어 이름
     category_names = {
         'business_value': '비즈니스 가치',
@@ -489,7 +478,7 @@ def render_results_page():
     }
     
     # 탭으로 다양한 시각화 제공
-    tab1, tab2, tab3 = st.tabs(["📊 막대 차트", "🎯 레이더 차트", "⚖️ 가중치 분석"])
+    tab1, tab2, tab3 = st.tabs(["📊 막대 차트", "🎯 레이더 차트"])
     
     with tab1:
         if not PLOTLY_AVAILABLE:
@@ -499,20 +488,13 @@ def render_results_page():
         # 막대 차트
         categories = [category_names.get(cat, cat) for cat in scores.keys()]
         original_scores = list(scores.values())
-        weighted_scores_list = [weighted_scores.get(cat, 0) for cat in scores.keys()]
-        
+
         fig = go.Figure()
         fig.add_trace(go.Bar(
-            name='원본 점수',
+            name='점수',
             x=categories,
             y=original_scores,
             marker_color='lightblue'
-        ))
-        fig.add_trace(go.Bar(
-            name='가중치 적용 점수',
-            x=categories,
-            y=weighted_scores_list,
-            marker_color='darkblue'
         ))
         
         fig.update_layout(
@@ -533,18 +515,10 @@ def render_results_page():
             r=original_scores,
             theta=categories,
             fill='toself',
-            name='원본 점수',
+            name='점수',
             line_color='lightblue'
         ))
-        
-        fig.add_trace(go.Scatterpolar(
-            r=weighted_scores_list,
-            theta=categories,
-            fill='toself',
-            name='가중치 적용 점수',
-            line_color='darkblue'
-        ))
-        
+
         fig.update_layout(
             polar=dict(
                 radialaxis=dict(
@@ -558,50 +532,7 @@ def render_results_page():
         )
         
         st.plotly_chart(fig, use_container_width=True, key="radar_chart")
-    
-    with tab3:
-        # 가중치 분석
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # 가중치 파이 차트
-            weight_values = [weights.get(cat, 0) for cat in scores.keys()]
-            
-            fig = go.Figure(data=[go.Pie(
-                labels=categories,
-                values=weight_values,
-                hole=0.3
-            )])
-            
-            fig.update_layout(
-                title="평가 항목별 가중치 분포",
-                height=400
-            )
-            
-            st.plotly_chart(fig, use_container_width=True, key="pie_chart")
-        
-        with col2:
-            # 가중치 효과 분석
-            st.write("**가중치 효과 분석**")
-            
-            for cat in scores.keys():
-                original = scores[cat]
-                weighted = weighted_scores.get(cat, 0)
-                weight = weights.get(cat, 0)
-                effect = weighted - original
-                
-                st.write(f"**{category_names.get(cat, cat)}**")
-                st.write(f"- 가중치: {weight:.3f}")
-                st.write(f"- 효과: {effect:+.2f}")
-                
-                if effect > 0:
-                    st.success("↗️ 점수 상승")
-                elif effect < 0:
-                    st.error("↘️ 점수 하락")
-                else:
-                    st.info("→ 변화 없음")
-                st.write("---")
-    
+
     st.markdown("---")
     
     # 상세 점수 표
@@ -613,9 +544,7 @@ def render_results_page():
     
     df = pd.DataFrame({
         '평가 항목': [category_names.get(cat, cat) for cat in scores.keys()],
-        '원본 점수': [f"{scores[cat]:.2f}" for cat in scores.keys()],
-        '가중치': [f"{weights.get(cat, 0):.3f}" for cat in scores.keys()],
-        '가중치 적용 점수': [f"{weighted_scores.get(cat, 0):.2f}" for cat in scores.keys()],
+        '점수': [f"{scores[cat]:.2f}" for cat in scores.keys()],
         '순위': range(1, len(scores) + 1)
     })
     
@@ -627,8 +556,8 @@ def render_results_page():
     
     st.markdown("---")
     
-    # 프로젝트 분류 및 가중치 정보
-    st.subheader("🏷️ 프로젝트 분류 및 가중치 적용")
+    # 프로젝트 분류
+    st.subheader("🏷️ 프로젝트 분류")
     
     classification = results.get('classification', {})
     if classification:
@@ -695,12 +624,6 @@ def render_results_page():
             st.write("**분류 근거:**")
             st.write(classification.get('reasoning', '분류 근거가 없습니다.'))
             
-            # 가중치 요약 정보
-            weight_summary = results.get('weight_summary', '')
-            if weight_summary:
-                st.write("**적용된 가중치 정보:**")
-                st.code(weight_summary, language='text')
-    
     st.markdown("---")
     
     # 평가 체인별 상세 정보
