@@ -538,7 +538,7 @@ class ChainExecutor:
     
     def get_average_score(self, results: Dict[str, Dict[str, Any]]) -> float:
         """
-        모든 체인의 평균 점수 계산 (가중치 없이)
+        모든 체인의 평균 점수 계산
         
         Args:
             results: 체인 실행 결과

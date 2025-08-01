@@ -136,7 +136,7 @@ class ChainUtils:
         pain_killer_text = "\n".join([f"- {criteria}" for criteria in pain_killer_criteria])
         vitamin_text = "\n".join([f"- {criteria}" for criteria in vitamin_criteria])
         
-        # 프로젝트 타입에 따른 평가 가중치 설정
+        # 프로젝트 타입에 따른 평가
         if project_type.lower() == 'painkiller':
             weight_instruction = f"이 프로젝트는 PainKiller 유형으로 분류되었으므로, Pain Killer 기준에 맞춰 {criteria_key}를 평가하세요."
             evaluation_criteria = pain_killer_text
@@ -158,7 +158,7 @@ class ChainUtils:
         
         평가 방법:
         1. 각 기준에 대해 1-10점으로 평가
-        2. 프로젝트 타입에 따른 가중치 적용
+        2. 프로젝트 타입({project_type})에 따른 평가
         
         **중요: 응답은 반드시 아래 JSON 형식만으로 제공해주세요. 다른 설명이나 텍스트는 포함하지 마세요.**
         

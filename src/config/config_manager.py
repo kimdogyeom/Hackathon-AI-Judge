@@ -70,17 +70,6 @@ class ConfigManager:
                 return default
         
         return current
-    
-    def get_weights(self, project_type: str) -> Dict[str, float]:
-        """가중치 조회 (weight_manager 대체)"""
-        weights = self.get_config('chain_weights.yaml', f'weights.{project_type}', {})
-        if not weights:
-            # 기본 균등 가중치
-            chains = ['business_value', 'technical_feasibility', 'cost_analysis',
-                     'user_engagement', 'innovation', 'social_impact', 
-                     'sustainability', 'accessibility', 'network_effect']
-            weights = {chain: 1.0/len(chains) for chain in chains}
-        return weights
 
 
 # 전역 인스턴스
@@ -99,9 +88,6 @@ def get_config(filename: str, key_path: Optional[str] = None, default: Any = Non
     """설정값 조회 편의 함수"""
     return get_config_manager().get_config(filename, key_path, default)
 
-def get_weights(project_type: str):
-    """가중치 조회 편의 함수"""
-    return get_config_manager().get_weights(project_type)
 
 def get_system_prompt(analysis_type: str):
     """시스템 프롬프트 조회"""

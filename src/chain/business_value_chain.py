@@ -105,7 +105,7 @@ class BusinessValueChain(EvaluationChainBase):
         pain_killer_criteria = "\n".join([f"- {criteria}" for criteria in self.pain_killer_evaluation_list])
         vitamin_criteria = "\n".join([f"- {criteria}" for criteria in self.vitamin_evaluation_list])
         
-        # 프로젝트 타입에 따른 평가 가중치 설정
+        # 프로젝트 타입에 따른 평가
         if project_type.lower() == 'painkiller':
             weight_instruction = "이 프로젝트는 PainKiller 유형으로 분류되었으므로, Pain Killer 기준에 맞춰 평가하세요."
             evaluation_criteria = pain_killer_criteria
@@ -128,7 +128,7 @@ class BusinessValueChain(EvaluationChainBase):
         
         평가 방법:
         1. 각 기준에 대해 1-10점으로 평가
-        2. 프로젝트 타입에 따른 가중치 적용
+        2. 프로젝트 타입({project_type})에 따른 평가
         
         **중요: 응답은 반드시 아래 JSON 형식만으로 제공해주세요. 다른 설명이나 텍스트는 포함하지 마세요.**
         
