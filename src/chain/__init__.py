@@ -13,6 +13,7 @@ from .social_impact_chain import SocialImpactChain
 from .sustainability_chain import SustainabilityChain
 from .technical_feasibility_chain import TechnicalFeasibilityChain
 from .user_engagement_chain import UserEngagementChain
+from .chain_executor import ChainExecutor
 
 __all__ = [
     'EvaluationChainBase',
@@ -24,5 +25,6 @@ __all__ = [
     'SocialImpactChain',
     'SustainabilityChain',
     'TechnicalFeasibilityChain',
-    'UserEngagementChain'
+    'UserEngagementChain',
+    'ChainExecutor'
 ]

@@ -16,7 +16,7 @@ class CostAnalysisChain(EvaluationChainBase):
     evaluation.yaml의 BusinessValue 기준을 활용하여 비용 관점에서 평가합니다.
     """
 
-    def __init__(self, llm=None, config_path: str = "src/config/evaluation.yaml"):
+    def __init__(self, llm=None, config_path: str = "src/config/settings/evaluation/evaluation.yaml"):
         super().__init__("CostAnalysisChain")
         if llm is None:
             from src.llm.nova_lite_llm import NovaLiteLLM
@@ -74,15 +74,10 @@ class CostAnalysisChain(EvaluationChainBase):
         {{data_limitations}}
 
         ## 비용 효율성 평가 기준 (BusinessValue 관점):
-
-        **Pain Killer 기준 (필수적 비용 문제 해결):**
-        {pain_killer_criteria}
-
-        **Vitamin 기준 (부가적 비용 가치 제공):**
-        {vitamin_criteria}
+        {{evaluation_criteria}}
 
         ## 평가 수행:
-        위 기준들을 비용 효율성 관점에서 적용하여 {{classification}} 특성을 고려한 평가를 수행해주세요.
+        위 기준을 비용 효율성 관점에서 적용하여 {{classification}} 유형 프로젝트를 평가해주세요.
         다음 형식으로 JSON 응답을 제공해주세요:
         ```json
         {{{{
@@ -123,9 +118,16 @@ class CostAnalysisChain(EvaluationChainBase):
         # 데이터 제한사항 확인
         limitations = self._check_data_availability(data)
         
+        # 이미 분류된 프로젝트 타입 추출
+        project_type = "balanced"  # 기본값
+        if 'project_type' in data:
+            project_type = data['project_type']
+        elif 'classification' in data and isinstance(data['classification'], dict):
+            project_type = data['classification'].get('project_type', 'balanced')
+        
         # 필요한 데이터 추출
         parsed_data = data.get("parsed_data", {})
-        classification = data.get("classification", "balanced")
+        classification = project_type  # 이미 분류된 타입 사용
         material_analysis = data.get("material_analysis", "")
         
         # 데이터 제한사항 메시지 생성
@@ -135,6 +137,22 @@ class CostAnalysisChain(EvaluationChainBase):
         else:
             limitations_text = "모든 자료가 충분히 제공되었습니다."
 
+        # 프로젝트 타입에 따른 평가 기준 선택
+        if project_type.lower() == 'painkiller':
+            criteria = "\n".join([f"- {criteria}" for criteria in self.pain_killer_criteria])
+            criteria_type = "Pain Killer 기준 (필수적 비용 문제 해결)"
+            evaluation_focus = "필수적 비용 문제 해결"
+        elif project_type.lower() == 'vitamin':
+            criteria = "\n".join([f"- {criteria}" for criteria in self.vitamin_criteria])
+            criteria_type = "Vitamin 기준 (부가적 비용 가치 제공)"
+            evaluation_focus = "부가적 비용 가치 제공"
+        else:  # balanced
+            pain_killer_criteria = "\n".join([f"- {criteria}" for criteria in self.pain_killer_criteria])
+            vitamin_criteria = "\n".join([f"- {criteria}" for criteria in self.vitamin_criteria])
+            criteria = f"**Pain Killer 기준:**\n{pain_killer_criteria}\n\n**Vitamin 기준:**\n{vitamin_criteria}"
+            criteria_type = "Pain Killer + Vitamin 기준 (균형적 비용 분석)"
+            evaluation_focus = "필수적 비용 문제 해결과 부가적 가치 제공의 균형"
+
         # 프롬프트 구성
         prompt_template = self._build_prompt_template()
         prompt = prompt_template.format(
@@ -143,9 +161,10 @@ class CostAnalysisChain(EvaluationChainBase):
             technology=parsed_data.get("technology", "정보 없음"),
             target_users=parsed_data.get("target_users", "정보 없음"),
             business_model=parsed_data.get("business_model", "정보 없음"),
-            classification=classification,
+            classification=f"{classification.upper()} (평가 초점: {evaluation_focus})",
             material_analysis=material_analysis or "종합 분석 정보가 제공되지 않았습니다.",
-            data_limitations=limitations_text
+            data_limitations=limitations_text,
+            evaluation_criteria=f"**{criteria_type}:**\n{criteria}"
         )
 
         try:

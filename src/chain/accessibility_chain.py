@@ -12,7 +12,7 @@ class AccessibilityChain(EvaluationChainBase):
     WCAG 가이드라인을 기반으로 프로젝트의 접근성을 평가합니다.
     """
 
-    def __init__(self, config_path: str = "src/config/evaluation.yaml"):
+    def __init__(self, config_path: str = "src/config/settings/evaluation/evaluation.yaml"):
         super().__init__("AccessibilityChain")
         self._load_evaluation_criteria(config_path)
         

@@ -16,7 +16,7 @@ class SustainabilityChain(EvaluationChainBase):
     ESG(Environmental, Social, Governance) 관점에서 장기적 지속가능성을 종합적으로 분석합니다.
     """
 
-    def __init__(self, llm=None, config_path: str = "src/config/evaluation.yaml"):
+    def __init__(self, llm=None, config_path: str = "src/config/settings/evaluation/evaluation.yaml"):
         super().__init__("SustainabilityChain")
         if llm is None:
             from src.llm.nova_lite_llm import NovaLiteLLM
@@ -85,13 +85,11 @@ class SustainabilityChain(EvaluationChainBase):
            - 윤리적 경영과 컴플라이언스
            - 지속가능한 운영 체계
 
-        ## 분류별 평가 기준:
-        - **PainKiller 관점**: 문제 해결의 지속가능성과 장기적 효과성에 중점
-        - **Vitamin 관점**: 가치 창출의 지속가능성과 사회적 책임에 중점
-        - **Balanced 관점**: 환경, 사회, 경제적 지속가능성의 균형적 평가
+        ## 지속가능성 평가 기준:
+        {evaluation_criteria}
 
         ## 평가 수행:
-        {classification} 특성을 고려하여 이 프로젝트의 지속가능성을 0-10점 척도로 평가해주세요.
+        위 기준에 따라 {classification} 유형 프로젝트의 지속가능성을 0-10점 척도로 평가해주세요.
         다음 형식으로 JSON 응답을 제공해주세요:
         ```json
         {{
@@ -132,9 +130,16 @@ class SustainabilityChain(EvaluationChainBase):
         # 데이터 제한사항 확인
         limitations = self._check_data_availability(data)
         
+        # 이미 분류된 프로젝트 타입 추출
+        project_type = "balanced"  # 기본값
+        if 'project_type' in data:
+            project_type = data['project_type']
+        elif 'classification' in data and isinstance(data['classification'], dict):
+            project_type = data['classification'].get('project_type', 'balanced')
+        
         # 필요한 데이터 추출
         parsed_data = data.get("parsed_data", {})
-        classification = data.get("classification", "balanced")
+        classification = project_type  # 이미 분류된 타입 사용
         material_analysis = data.get("material_analysis", "")
         
         # 데이터 제한사항 메시지 생성
@@ -144,6 +149,19 @@ class SustainabilityChain(EvaluationChainBase):
         else:
             limitations_text = "모든 자료가 충분히 제공되었습니다."
 
+        # 프로젝트 타입에 따른 평가 기준 선택
+        if project_type.lower() == 'painkiller':
+            criteria = "\n".join([f"- {criteria}" for criteria in self.pain_killer_criteria])
+            criteria_type = "Pain Killer 기준 (필수적 지속가능성 문제 해결)"
+        elif project_type.lower() == 'vitamin':
+            criteria = "\n".join([f"- {criteria}" for criteria in self.vitamin_criteria])
+            criteria_type = "Vitamin 기준 (부가적 지속가능성 가치 제공)"
+        else:  # balanced
+            pain_killer_criteria = "\n".join([f"- {criteria}" for criteria in self.pain_killer_criteria])
+            vitamin_criteria = "\n".join([f"- {criteria}" for criteria in self.vitamin_criteria])
+            criteria = f"**Pain Killer 기준:**\n{pain_killer_criteria}\n\n**Vitamin 기준:**\n{vitamin_criteria}"
+            criteria_type = "Pain Killer + Vitamin 기준 (균형적 지속가능성)"
+
         # 프롬프트 구성
         prompt = self.prompt_template.format(
             project_name=parsed_data.get("project_name", "정보 없음"),
@@ -151,9 +169,10 @@ class SustainabilityChain(EvaluationChainBase):
             technology=parsed_data.get("technology", "정보 없음"),
             target_users=parsed_data.get("target_users", "정보 없음"),
             business_model=parsed_data.get("business_model", "정보 없음"),
-            classification=classification,
+            classification=f"{classification.upper()} ({criteria_type})",
             material_analysis=material_analysis or "종합 분석 정보가 제공되지 않았습니다.",
-            data_limitations=limitations_text
+            data_limitations=limitations_text,
+            evaluation_criteria=f"**{criteria_type}:**\n{criteria}"
         )
 
         try:
@@ -164,6 +183,10 @@ class SustainabilityChain(EvaluationChainBase):
             # JSON 파싱
             result = self._parse_llm_response(result_text)
             
+            # 프로젝트 타입 정보 추가
+            result["project_type"] = project_type
+            result["evaluation_focus"] = f"{project_type} 유형 기반 지속가능성 평가"
+            
             # 데이터 제한사항이 있는 경우 결과에 추가
             if limitations:
                 result["data_limitations"] = "; ".join(limitations)
@@ -172,7 +195,7 @@ class SustainabilityChain(EvaluationChainBase):
 
         except Exception as e:
             self.logger.error(f"지속가능성 분석 중 오류 발생: {str(e)}")
-            return self._get_fallback_result(limitations)
+            return self._get_fallback_result(limitations, project_type)
     
     def _parse_llm_response(self, result_text: str) -> Dict[str, Any]:
         """
@@ -253,7 +276,7 @@ class SustainabilityChain(EvaluationChainBase):
             self.logger.warning(f"유효하지 않은 점수 값: {score}, 기본값 5.0 사용")
             return 5.0
     
-    def _get_fallback_result(self, limitations: List[str] = None) -> Dict[str, Any]:
+    def _get_fallback_result(self, limitations: List[str] = None, project_type: str = "balanced") -> Dict[str, Any]:
         """
         오류 상황에서 사용할 기본 결과를 반환합니다.
         

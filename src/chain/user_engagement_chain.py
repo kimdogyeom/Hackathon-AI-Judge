@@ -16,7 +16,7 @@ class UserEngagementChain(EvaluationChainBase):
     사용자 경험, 인터페이스 디자인, 사용성, 참여 유도 요소 등을 종합적으로 분석합니다.
     """
 
-    def __init__(self, llm=None, config_path: str = "src/config/evaluation.yaml"):
+    def __init__(self, llm=None, config_path: str = "src/config/settings/evaluation/evaluation.yaml"):
         super().__init__("UserEngagementChain")
         if llm is None:
             from src.llm.nova_lite_llm import NovaLiteLLM
@@ -85,13 +85,11 @@ class UserEngagementChain(EvaluationChainBase):
            - 오류 방지와 복구 기능
            - 전반적인 사용자 만족도
 
-        ## 분류별 평가 기준:
-        - **PainKiller 관점**: 문제 해결 과정에서의 사용 편의성과 효율성에 중점
-        - **Vitamin 관점**: 사용자 경험의 즐거움과 참여 유도 요소에 중점
-        - **Balanced 관점**: 실용성과 즐거움의 균형적 사용자 경험
+        ## 사용자 참여도 평가 기준:
+        {evaluation_criteria}
 
         ## 평가 수행:
-        {classification} 특성을 고려하여 이 프로젝트의 사용자 참여도를 0-10점 척도로 평가해주세요.
+        위 기준에 따라 {classification} 유형 프로젝트의 사용자 참여도를 0-10점 척도로 평가해주세요.
         다음 형식으로 JSON 응답을 제공해주세요:
         ```json
         {{
@@ -132,9 +130,16 @@ class UserEngagementChain(EvaluationChainBase):
         # 데이터 제한사항 확인
         limitations = self._check_data_availability(data)
         
+        # 이미 분류된 프로젝트 타입 추출
+        project_type = "balanced"  # 기본값
+        if 'project_type' in data:
+            project_type = data['project_type']
+        elif 'classification' in data and isinstance(data['classification'], dict):
+            project_type = data['classification'].get('project_type', 'balanced')
+        
         # 필요한 데이터 추출
         parsed_data = data.get("parsed_data", {})
-        classification = data.get("classification", "balanced")
+        classification = project_type  # 이미 분류된 타입 사용
         material_analysis = data.get("material_analysis", "")
         
         # 데이터 제한사항 메시지 생성
@@ -144,6 +149,22 @@ class UserEngagementChain(EvaluationChainBase):
         else:
             limitations_text = "모든 자료가 충분히 제공되었습니다."
 
+        # 프로젝트 타입에 따른 평가 기준 선택
+        if project_type.lower() == 'painkiller':
+            criteria = "\n".join([f"- {criteria}" for criteria in self.pain_killer_criteria])
+            criteria_type = "Pain Killer 기준 (필수적 사용자 문제 해결)"
+            evaluation_focus = "문제 해결 과정에서의 사용 편의성과 효율성"
+        elif project_type.lower() == 'vitamin':
+            criteria = "\n".join([f"- {criteria}" for criteria in self.vitamin_criteria])
+            criteria_type = "Vitamin 기준 (부가적 사용자 경험 향상)"
+            evaluation_focus = "사용자 경험의 즐거움과 참여 유도 요소"
+        else:  # balanced
+            pain_killer_criteria = "\n".join([f"- {criteria}" for criteria in self.pain_killer_criteria])
+            vitamin_criteria = "\n".join([f"- {criteria}" for criteria in self.vitamin_criteria])
+            criteria = f"**Pain Killer 기준:**\n{pain_killer_criteria}\n\n**Vitamin 기준:**\n{vitamin_criteria}"
+            criteria_type = "Pain Killer + Vitamin 기준 (균형적 사용자 참여도)"
+            evaluation_focus = "실용성과 즐거움의 균형적 사용자 경험"
+
         # 프롬프트 구성
         prompt = self.prompt_template.format(
             project_name=parsed_data.get("project_name", "정보 없음"),
@@ -151,9 +172,10 @@ class UserEngagementChain(EvaluationChainBase):
             technology=parsed_data.get("technology", "정보 없음"),
             target_users=parsed_data.get("target_users", "정보 없음"),
             business_model=parsed_data.get("business_model", "정보 없음"),
-            classification=classification,
+            classification=f"{classification.upper()} (평가 초점: {evaluation_focus})",
             material_analysis=material_analysis or "종합 분석 정보가 제공되지 않았습니다.",
-            data_limitations=limitations_text
+            data_limitations=limitations_text,
+            evaluation_criteria=f"**{criteria_type}:**\n{criteria}"
         )
 
         try:
@@ -164,6 +186,10 @@ class UserEngagementChain(EvaluationChainBase):
             # JSON 파싱
             result = self._parse_llm_response(result_text)
             
+            # 프로젝트 타입 정보 추가
+            result["project_type"] = project_type
+            result["evaluation_focus"] = f"{project_type} 유형 기반 사용자 참여도 평가"
+            
             # 데이터 제한사항이 있는 경우 결과에 추가
             if limitations:
                 result["data_limitations"] = "; ".join(limitations)
@@ -172,7 +198,7 @@ class UserEngagementChain(EvaluationChainBase):
 
         except Exception as e:
             self.logger.error(f"사용자 참여도 분석 중 오류 발생: {str(e)}")
-            return self._get_fallback_result(limitations)
+            return self._get_fallback_result(limitations, project_type)
     
     def _parse_llm_response(self, result_text: str) -> Dict[str, Any]:
         """
@@ -253,7 +279,7 @@ class UserEngagementChain(EvaluationChainBase):
             self.logger.warning(f"유효하지 않은 점수 값: {score}, 기본값 5.0 사용")
             return 5.0
     
-    def _get_fallback_result(self, limitations: List[str] = None) -> Dict[str, Any]:
+    def _get_fallback_result(self, limitations: List[str] = None, project_type: str = "balanced") -> Dict[str, Any]:
         """
         오류 상황에서 사용할 기본 결과를 반환합니다.
         
