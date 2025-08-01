@@ -9,9 +9,9 @@ classification:
   # 분류 알고리즘 설정
   algorithm:
     # 키워드 매칭 가중치 (전체 점수에서 키워드 매칭이 차지하는 비중)
-    keyword_weight: 0.6
+    keyword_weight: 0.2
     # 컨텍스트 분석 가중치 (전체 점수에서 문맥 분석이 차지하는 비중)
-    context_weight: 0.4
+    context_weight: 0.8
     # 최소 키워드 매칭 수 (분류를 위한 최소 키워드 매칭 개수)
     min_keyword_matches: 2
   
