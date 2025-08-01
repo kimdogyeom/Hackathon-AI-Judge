@@ -1,280 +1,225 @@
 # -*- coding: utf-8 -*-
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-import json
-import re
 import yaml
-from typing import Dict, Any, List
-from .base_evaluation_chain import EvaluationChainBase
+import json
+from typing import Optional, Any, Dict
+
+from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables.utils import Input, Output
+
+from src.llm.nova_lite_llm import NovaLiteLLM
+from src.config.config_manager import get_config_manager
+from src.chain.base_evaluation_chain import EvaluationChainBase
+from src.chain.chain_utils import ChainUtils
 
 
 class CostAnalysisChain(EvaluationChainBase):
     """
     비용 분석 체인.
-    프로젝트의 비용 효율성과 ROI를 평가합니다.
+    NovaLiteLLM을 사용하여 프로젝트의 비용 효율성과 ROI를 평가합니다.
     
-    evaluation.yaml의 BusinessValue 기준을 활용하여 비용 관점에서 평가합니다.
+    evaluation.yaml의 BusinessValue 기준을 비용 관점에서 적용하여 평가합니다.
     """
 
-    def __init__(self, llm=None, config_path: str = "src/config/settings/evaluation/evaluation.yaml"):
+    def __init__(self, config_path: str = "src/config/settings/evaluation/evaluation.yaml"):
         super().__init__("CostAnalysisChain")
-        if llm is None:
-            from src.llm.nova_lite_llm import NovaLiteLLM
-            self.llm = NovaLiteLLM()
-        else:
-            self.llm = llm
-        self.output_parser = StrOutputParser()
         self._load_evaluation_criteria(config_path)
+        self.llm = NovaLiteLLM()
+        self.config_manager = get_config_manager()
 
     def _load_evaluation_criteria(self, config_path: str):
-        """evaluation.yaml에서 BusinessValue 평가 기준을 로드합니다."""
+        """evaluation.yaml에서 BusinessValue 평가 기준을 비용 관점에서 로드합니다."""
         try:
             with open(config_path, 'r', encoding='utf-8') as file:
                 criteria = yaml.safe_load(file)
-            
-            business_value = criteria.get('BusinessValue', {})
-            self.pain_killer_criteria = business_value.get('pain_killer', [])
-            self.vitamin_criteria = business_value.get('vitamin', [])
-            
+
+            business_value = criteria['BusinessValue']
+            self.pain_killer_evaluation_list = business_value['pain_killer']
+            self.vitamin_evaluation_list = business_value['vitamin']
+
         except Exception as e:
-            self.logger.warning(f"평가 기준 로드 실패, 기본값 사용: {e}")
-            self.pain_killer_criteria = [
-                "비용 문제가 타겟 고객의 생존 또는 운영 손실과 직결되는가?",
-                "기존 해결책의 한계가 심각한가?",
-                "즉각적인 비용 절감이 필요한가?"
-            ]
-            self.vitamin_criteria = [
-                "비용 절감이 편의성 및 효율성을 개선해주는가?",
-                "프리미엄의 가치를 제공하는가?",
-                "기존 대안보다 차별화를 보여주는가?"
-            ]
+            print(f"YAML 로드 실패, 기본값 사용: {e}")
+            raise FileNotFoundError(e)
 
-    def _build_prompt_template(self):
-        """evaluation.yaml 기준을 활용한 프롬프트 템플릿을 구성합니다."""
-        pain_killer_criteria = "\n".join([f"- {criteria}" for criteria in self.pain_killer_criteria])
-        vitamin_criteria = "\n".join([f"- {criteria}" for criteria in self.vitamin_criteria])
-        
-        return ChatPromptTemplate.from_template(f"""
-        ## 평가 대상: 해커톤 프로젝트 비용 효율성 평가
 
-        ### 프로젝트 정보:
-        - 프로젝트명: {{project_name}}
-        - 설명: {{description}}
-        - 기술: {{technology}}
-        - 타겟 사용자: {{target_users}}
-        - 비즈니스 모델: {{business_model}}
-
-        ### 분류:
-        - 이 프로젝트는 {{classification}} 유형으로 분류되었습니다.
-
-        ### 종합 분석:
-        {{material_analysis}}
-
-        ### 데이터 제한사항:
-        {{data_limitations}}
-
-        ## 비용 효율성 평가 기준 (BusinessValue 관점):
-        {{evaluation_criteria}}
-
-        ## 평가 수행:
-        위 기준을 비용 효율성 관점에서 적용하여 {{classification}} 유형 프로젝트를 평가해주세요.
-        다음 형식으로 JSON 응답을 제공해주세요:
-        ```json
-        {{{{
-            "score": [0-10 사이의 점수],
-            "reasoning": "[평가 근거 설명 - 위 기준들을 비용 관점에서 적용한 분석]",
-            "suggestions": ["[개선 제안1]", "[개선 제안2]", "[개선 제안3]"],
-            "cost_breakdown": {{{{
-                "development_cost": "[개발 비용 분석]",
-                "operational_cost": "[운영 비용 분석]", 
-                "expected_revenue": "[예상 수익 분석]",
-                "roi_estimate": "[ROI 추정치]"
-            }}}},
-            "strengths": ["[비용 효율성 강점1]", "[비용 효율성 강점2]"],
-            "risks": ["[비용 리스크1]", "[비용 리스크2]"],
-            "cost_aspects": {{{{
-                "pain_killer_score": [0-10],
-                "vitamin_score": [0-10],
-                "development_efficiency": [0-10],
-                "operational_efficiency": [0-10],
-                "roi_potential": [0-10]
-            }}}}
-        }}}}
-        ```
-
-        결과는 반드시 유효한 JSON 형식이어야 합니다. 다른 텍스트는 포함하지 마세요.
-        """)
 
     def _analyze(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        실제 비용 효율성 분석 로직을 수행합니다.
+        EvaluationChainBase의 추상 메서드 구현.
+        비용 효율성 분석 로직을 실행합니다.
         
         Args:
             data: 전처리된 입력 데이터
             
         Returns:
-            Dict: 비용 분석 결과
+            Dict: 분석 결과 (score, reasoning, suggestions 등 포함)
         """
-        # 데이터 제한사항 확인
-        limitations = self._check_data_availability(data)
+        # 공통 유틸리티를 사용하여 프로젝트 타입 추출
+        project_type = ChainUtils.extract_project_type(data)
         
-        # 이미 분류된 프로젝트 타입 추출
-        project_type = "balanced"  # 기본값
-        if 'project_type' in data:
-            project_type = data['project_type']
-        elif 'classification' in data and isinstance(data['classification'], dict):
-            project_type = data['classification'].get('project_type', 'balanced')
+        # 공통 유틸리티를 사용하여 입력 데이터 처리
+        project_info = ChainUtils.process_input_data(data)
         
-        # 필요한 데이터 추출
-        parsed_data = data.get("parsed_data", {})
-        classification = project_type  # 이미 분류된 타입 사용
-        material_analysis = data.get("material_analysis", "")
+        # 비용 효율성 평가 수행
+        return self._evaluate_cost_analysis(project_info, project_type)
+
+    def _evaluate_cost_analysis(self, project_info: str, project_type: str = "balanced") -> Dict[str, Any]:
+        """
+        NovaLiteLLM을 사용하여 비용 효율성을 평가합니다.
         
-        # 데이터 제한사항 메시지 생성
-        limitations_text = ""
-        if limitations:
-            limitations_text = "다음 제한사항이 있습니다: " + ", ".join(limitations)
-        else:
-            limitations_text = "모든 자료가 충분히 제공되었습니다."
-
-        # 프로젝트 타입에 따른 평가 기준 선택
-        if project_type.lower() == 'painkiller':
-            criteria = "\n".join([f"- {criteria}" for criteria in self.pain_killer_criteria])
-            criteria_type = "Pain Killer 기준 (필수적 비용 문제 해결)"
-            evaluation_focus = "필수적 비용 문제 해결"
-        elif project_type.lower() == 'vitamin':
-            criteria = "\n".join([f"- {criteria}" for criteria in self.vitamin_criteria])
-            criteria_type = "Vitamin 기준 (부가적 비용 가치 제공)"
-            evaluation_focus = "부가적 비용 가치 제공"
-        else:  # balanced
-            pain_killer_criteria = "\n".join([f"- {criteria}" for criteria in self.pain_killer_criteria])
-            vitamin_criteria = "\n".join([f"- {criteria}" for criteria in self.vitamin_criteria])
-            criteria = f"**Pain Killer 기준:**\n{pain_killer_criteria}\n\n**Vitamin 기준:**\n{vitamin_criteria}"
-            criteria_type = "Pain Killer + Vitamin 기준 (균형적 비용 분석)"
-            evaluation_focus = "필수적 비용 문제 해결과 부가적 가치 제공의 균형"
-
-        # 프롬프트 구성
-        prompt_template = self._build_prompt_template()
-        prompt = prompt_template.format(
-            project_name=parsed_data.get("project_name", "정보 없음"),
-            description=parsed_data.get("description", "정보 없음"),
-            technology=parsed_data.get("technology", "정보 없음"),
-            target_users=parsed_data.get("target_users", "정보 없음"),
-            business_model=parsed_data.get("business_model", "정보 없음"),
-            classification=f"{classification.upper()} (평가 초점: {evaluation_focus})",
-            material_analysis=material_analysis or "종합 분석 정보가 제공되지 않았습니다.",
-            data_limitations=limitations_text,
-            evaluation_criteria=f"**{criteria_type}:**\n{criteria}"
-        )
-
-        try:
-            # LLM 호출
-            response = self.llm.invoke(prompt)
-            result_text = self.output_parser.invoke(response)
-
-            # JSON 파싱
-            result = self._parse_llm_response(result_text)
+        Args:
+            project_info: 평가할 프로젝트 정보
+            project_type: 이미 분류된 프로젝트 타입 (painkiller/vitamin/balanced)
             
-            # 데이터 제한사항이 있는 경우 결과에 추가
-            if limitations:
-                result["data_limitations"] = "; ".join(limitations)
+        Returns:
+            Dict: 구조화된 평가 결과
+        """
+        # 시스템 프롬프트 구성 (프로젝트 타입 반영)
+        system_message = self._build_system_prompt(project_type)
+        
+        # 사용자 메시지 구성
+        user_message = self._build_user_prompt(project_info, project_type)
+        
+        try:
+            # 공통 유틸리티를 사용하여 LLM 설정 로드
+            llm_config = ChainUtils.get_llm_config()
+            
+            # NovaLiteLLM 호출
+            response = self.llm.invoke(
+                user_message=user_message,
+                system_message=system_message,
+                temperature=llm_config['temperature'],
+                max_tokens=llm_config['max_tokens']
+            )
+            
+            # 응답 파싱 (비용 분석 특화 필드 포함)
+            return self._parse_cost_analysis_response(response, project_type)
+            
+        except Exception as e:
+            print(f"LLM 호출 중 오류 발생: {e}")
+            return ChainUtils.handle_llm_error(e, project_type)
+
+    def _build_system_prompt(self, project_type: str = "balanced") -> str:
+        """
+        비용 효율성 평가를 위한 시스템 프롬프트를 구성합니다.
+        
+        Args:
+            project_type: 이미 분류된 프로젝트 타입
+            
+        Returns:
+            str: 시스템 프롬프트
+        """
+        pain_killer_criteria = "\n".join([f"- {criteria}" for criteria in self.pain_killer_evaluation_list])
+        vitamin_criteria = "\n".join([f"- {criteria}" for criteria in self.vitamin_evaluation_list])
+        
+        # 프로젝트 타입에 따른 평가 가중치 설정
+        if project_type.lower() == 'painkiller':
+            weight_instruction = "이 프로젝트는 PainKiller 유형으로 분류되었으므로, Pain Killer 기준에 맞춰 비용 효율성을 평가하세요."
+            evaluation_criteria = pain_killer_criteria
+
+        elif project_type.lower() == 'vitamin':
+            weight_instruction = "이 프로젝트는 Vitamin 유형으로 분류되었으므로, Vitamin 기준에 맞춰 비용 효율성을 평가하세요."
+            evaluation_criteria = vitamin_criteria
+        else:
+            weight_instruction = "이 프로젝트는 Balanced 유형으로 분류되었으므로, 두 기준을 균등하게 비용 효율성을 평가하세요."
+            evaluation_criteria = pain_killer_criteria + "\n" + vitamin_criteria + "\n- 평가항목에 대해서 균등하게 적용할 수 있도록 하세요"
+
+        return f"""당신은 비용 효율성 평가 전문가입니다. 이미 분류된 프로젝트 유형({project_type})을 고려하여 서비스의 비용 효율성과 ROI를 평가해주세요.
+        
+        {weight_instruction}
+        
+        평가 기준 (비용 관점에서 적용):
+        
+        **평가기준:**
+        {evaluation_criteria}
+        
+        평가 방법:
+        1. 각 기준을 비용 효율성 관점에서 1-10점으로 평가
+        2. 프로젝트 타입에 따른 가중치 적용
+        3. 개발 비용, 운영 비용, 예상 수익, ROI 등을 종합적으로 고려
+        
+        **중요: 응답은 반드시 아래 JSON 형식만으로 제공해주세요. 다른 설명이나 텍스트는 포함하지 마세요.**
+        
+        ```json
+        {{
+            "score": 숫자,
+            "reasoning": "평가에 대한 상세한 근거를 설명, 점수에 대한 명확한 근거가 있어야 하며, 20년차 전문가가 봐도 납득할만한 이유여야 함.",
+            "suggestions": ["개선점1", "개선점2", "개선점3"],
+            "cost_breakdown": {{
+                "development_cost": "개발 비용 분석",
+                "operational_cost": "운영 비용 분석", 
+                "expected_revenue": "예상 수익 분석",
+                "roi_estimate": "ROI 추정치"
+            }},
+            "strengths": ["비용 효율성 강점1", "비용 효율성 강점2"],
+            "risks": ["비용 리스크1", "비용 리스크2"]
+        }}
+        ```"""
+
+    def _build_user_prompt(self, project_info: str, project_type: str = "balanced") -> str:
+        """
+        사용자 프롬프트를 구성합니다.
+        
+        Args:
+            project_info: 프로젝트 정보
+            project_type: 이미 분류된 프로젝트 타입
+            
+        Returns:
+            str: 사용자 프롬프트
+        """
+        return f"""다음 프로젝트의 비용 효율성을 평가해주세요:
+
+            **프로젝트 분류**: {project_type.upper()} 유형
+            **프로젝트 정보**: {project_info}
+            
+            이미 분류된 프로젝트 유형({project_type})을 고려하여 비용 효율성을 평가하고, 반드시 JSON 형식으로만 응답해주세요."""
+
+    def _parse_cost_analysis_response(self, response: str, project_type: str = "balanced") -> Dict[str, Any]:
+        """
+        비용 분석 특화 응답을 파싱합니다.
+        
+        Args:
+            response: LLM 응답 문자열
+            project_type: 프로젝트 타입
+            
+        Returns:
+            Dict: 구조화된 비용 분석 결과
+        """
+        try:
+            # 기본 파싱 시도
+            result = ChainUtils.parse_llm_response(response, project_type)
+            
+            # 비용 분석 특화 필드 검증 및 기본값 설정
+            if 'cost_breakdown' not in result:
+                result['cost_breakdown'] = {
+                    "development_cost": "정보 부족으로 분석 불가",
+                    "operational_cost": "정보 부족으로 분석 불가",
+                    "expected_revenue": "정보 부족으로 분석 불가",
+                    "roi_estimate": "정보 부족으로 계산 불가"
+                }
+            
+            if 'strengths' not in result:
+                result['strengths'] = ["평가 정보 부족"]
+            
+            if 'risks' not in result:
+                result['risks'] = ["비용 분석을 위한 충분한 정보 부족"]
             
             return result
-
+            
         except Exception as e:
-            self.logger.error(f"비용 분석 중 오류 발생: {str(e)}")
-            return self._get_fallback_result(limitations)
-    
-    def _parse_llm_response(self, result_text: str) -> Dict[str, Any]:
-        """
-        LLM 응답을 파싱하여 구조화된 결과로 변환합니다.
-        
-        Args:
-            result_text: LLM 응답 텍스트
-            
-        Returns:
-            Dict: 파싱된 결과
-        """
-        try:
-            # JSON 부분만 추출
-            json_match = re.search(r'\{\s*"score".*\}', result_text, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(0)
-                result = json.loads(json_str)
-            else:
-                # 전체 텍스트를 JSON으로 파싱 시도
-                result = json.loads(result_text)
-            
-            # 결과 검증 및 정규화
-            return self._validate_and_normalize_result(result)
+            print(f"비용 분석 응답 파싱 실패: {e}")
+            return self._get_fallback_cost_result(project_type)
 
-        except json.JSONDecodeError as e:
-            self.logger.warning(f"JSON 파싱 실패: {str(e)}")
-            return self._get_fallback_result()
-    
-    def _validate_and_normalize_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
+    def _get_fallback_cost_result(self, project_type: str = "balanced") -> Dict[str, Any]:
         """
-        분석 결과를 검증하고 정규화합니다.
+        비용 분석 오류 상황에서 사용할 기본 결과를 반환합니다.
         
         Args:
-            result: 원본 분석 결과
+            project_type: 프로젝트 타입
             
         Returns:
-            Dict: 검증 및 정규화된 결과
+            Dict: 기본 비용 분석 결과
         """
-        # 필수 필드 확인 및 기본값 설정
-        normalized_result = {
-            "score": self._validate_score(result.get("score", 0)),
-            "reasoning": result.get("reasoning", "비용 효율성 평가가 완료되었습니다."),
-            "suggestions": result.get("suggestions", []),
-            "cost_breakdown": result.get("cost_breakdown", {}),
-            "strengths": result.get("strengths", []),
-            "risks": result.get("risks", []),
-            "cost_aspects": result.get("cost_aspects", {})
-        }
-        
-        # suggestions가 리스트가 아닌 경우 변환
-        if not isinstance(normalized_result["suggestions"], list):
-            normalized_result["suggestions"] = [str(normalized_result["suggestions"])]
-        
-        # 빈 suggestions인 경우 기본값 제공
-        if not normalized_result["suggestions"]:
-            normalized_result["suggestions"] = [
-                "개발 비용 최적화를 위한 기술 스택 재검토",
-                "운영 비용 절감을 위한 클라우드 서비스 활용",
-                "수익 모델 다각화를 통한 ROI 개선"
-            ]
-        
-        return normalized_result
-    
-    def _validate_score(self, score: Any) -> float:
-        """
-        점수를 검증하고 유효한 범위로 조정합니다.
-        
-        Args:
-            score: 원본 점수
-            
-        Returns:
-            float: 검증된 점수 (0.0-10.0)
-        """
-        try:
-            score_float = float(score)
-            return max(0.0, min(10.0, score_float))
-        except (ValueError, TypeError):
-            self.logger.warning(f"유효하지 않은 점수 값: {score}, 기본값 5.0 사용")
-            return 5.0
-    
-    def _get_fallback_result(self, limitations: List[str] = None) -> Dict[str, Any]:
-        """
-        오류 상황에서 사용할 기본 결과를 반환합니다.
-        
-        Args:
-            limitations: 데이터 제한사항 목록
-            
-        Returns:
-            Dict: 기본 결과
-        """
-        result = {
+        return {
             "score": 5.0,
             "reasoning": "비용 효율성 평가를 완료할 수 없어 기본 점수를 제공합니다. 추가 정보가 필요합니다.",
             "suggestions": [
@@ -290,19 +235,24 @@ class CostAnalysisChain(EvaluationChainBase):
             },
             "strengths": ["평가 정보 부족"],
             "risks": ["비용 분석을 위한 충분한 정보 부족"],
-            "cost_aspects": {
-                "development_efficiency": 5.0,
-                "operational_efficiency": 5.0,
-                "revenue_potential": 5.0,
-                "cost_optimization": 5.0,
-                "sustainability": 5.0
-            }
+            "project_type": project_type,
+            "evaluation_method": "error_fallback"
         }
+    
+
+
+    def run(self):
+        """
+        비용 효율성 분석을 실행하고 점수를 반환합니다.
         
-        if limitations:
-            result["data_limitations"] = "; ".join(limitations)
+        Returns:
+            float: 비용 효율성 점수 (0-10)
+        """
+        # 기본 테스트용 프로젝트 정보
+        test_project = "AI 기반 비용 최적화 시스템 개발 프로젝트"
         
-        return result
+        result = self.invoke(test_project)
+        return result.get("score", 0)
 
     def __call__(self, data):
         """
@@ -314,6 +264,7 @@ class CostAnalysisChain(EvaluationChainBase):
         Returns:
             Dict: 평가 결과
         """
+        # invoke 메서드를 통해 표준화된 처리 수행
         return self.invoke(data)
 
     def as_runnable(self):

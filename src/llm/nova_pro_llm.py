@@ -23,12 +23,24 @@ class NovaProLLM(BaseLLM):
     비디오 분석에 특화된 모델입니다.
     """
 
-    def __init__(self, model_id: str = "amazon.nova-pro-v1:0"):
+    def __init__(self, model_id: str = None):
         """
         NovaProLLM 초기화
         
-        :param model_id: 사용할 모델 ID (nova-pro)
+        :param model_id: 사용할 모델 ID (None이면 설정에서 로드)
         """
+        if model_id is None:
+            # 설정에서 모델 ID 로드
+            try:
+                from src.config.config_manager import get_config_manager
+                config_manager = get_config_manager()
+                llm_config = config_manager.get_config('llm_classification.yaml', 'llm_classification.llm_config', {})
+                nova_pro_config = llm_config.get('nova_pro', {})
+                model_id = nova_pro_config.get('model_id', 'amazon.nova-pro-v1:0')
+            except Exception:
+                # 설정 로드 실패시 기본값 사용
+                model_id = 'amazon.nova-pro-v1:0'
+        
         self.model_id = model_id
 
     def invoke(self, 
@@ -153,10 +165,25 @@ class NovaProLLM(BaseLLM):
         if system_message and system_message.strip():
             messages.append(SystemMessage(content=system_message))
         
-        # 현재는 임시로 텍스트 형태로 처리 (향후 ChatBedrockConverse 공식 문서 참조하여 개선)
-        # TODO: ChatBedrockConverse 공식 문서에서 비디오 멀티모달 형식 확인 후 정확한 구현
-        video_analysis_content = f"{user_message}\n\n비디오 파일 S3 URI: {s3_uri}"
-        messages.append(HumanMessage(content=video_analysis_content))
+        # Nova Pro 멀티모달 메시지 구성 (비디오 + 텍스트)
+        # ChatBedrockConverse에서 비디오를 처리하는 올바른 형식
+        multimodal_content = [
+            {
+                "type": "text",
+                "text": user_message
+            },
+            {
+                "type": "video",
+                "source": {
+                    "type": "s3",
+                    "s3_location": {
+                        "uri": s3_uri
+                    }
+                }
+            }
+        ]
+        
+        messages.append(HumanMessage(content=multimodal_content))
         
         return messages
 

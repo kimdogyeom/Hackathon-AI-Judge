@@ -27,12 +27,24 @@ class NovaLiteLLM(BaseLLM):
     LangChain을 사용하여 표준화된 방식으로 Nova Lite 모델에 접근합니다.
     """
 
-    def __init__(self, model_id: str = "amazon.nova-lite-v1:0"):
+    def __init__(self, model_id: str = None):
         """
         NovaLiteLLM 초기화
         
-        :param model_id: 사용할 모델 ID (nova-lite)
+        :param model_id: 사용할 모델 ID (None이면 설정에서 로드)
         """
+        if model_id is None:
+            # 설정에서 모델 ID 로드
+            try:
+                from src.config.config_manager import get_config_manager
+                config_manager = get_config_manager()
+                llm_config = config_manager.get_config('llm_classification.yaml', 'llm_classification.llm_config', {})
+                nova_lite_config = llm_config.get('nova_lite', {})
+                model_id = nova_lite_config.get('model_id', 'amazon.nova-lite-v1:0')
+            except Exception:
+                # 설정 로드 실패시 기본값 사용
+                model_id = 'amazon.nova-lite-v1:0'
+        
         self.model_id = model_id
 
     def invoke(self, 

@@ -1,23 +1,22 @@
+from typing import Any, Dict
+
 import yaml
-import json
-from typing import Optional, Any, Dict
 
-from langchain_core.runnables import Runnable, RunnableConfig
-from langchain_core.runnables.utils import Input, Output
-
-from src.llm.nova_lite_llm import NovaLiteLLM
+from src.chain.base_evaluation_chain import EvaluationChainBase
+from src.chain.chain_utils import ChainUtils
 from src.config.config_manager import get_config_manager
+from src.llm.nova_lite_llm import NovaLiteLLM
 
 
 # -*- coding: utf-8 -*-
-class BusinessValueChain(Runnable):
+class BusinessValueChain(EvaluationChainBase):
     """
     비즈니스 가치 체인.
     NovaLiteLLM을 사용하여 프로젝트의 비즈니스적 가치를 평가합니다.
     """
 
     def __init__(self, config_path: str = "src/config/settings/evaluation/evaluation.yaml"):
-        super().__init__()
+        super().__init__("BusinessValueChain")
         self._load_evaluation_criteria(config_path)
         self.llm = NovaLiteLLM()
         self.config_manager = get_config_manager()
@@ -36,43 +35,25 @@ class BusinessValueChain(Runnable):
             raise FileNotFoundError(e)
 
 
-    def invoke(self, input: Input, config: Optional[RunnableConfig] = None, **kwargs: Any) -> Output:
+    def _analyze(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        비즈니스 가치 평가를 실행합니다.
+        EvaluationChainBase의 추상 메서드 구현.
+        비즈니스 가치 평가 로직을 실행합니다.
         
         Args:
-            input: 평가할 프로젝트 정보 (딕셔너리 형태, project_type 포함)
-            config: 실행 설정 (선택)
-            **kwargs: 추가 파라미터
+            data: 전처리된 입력 데이터
             
         Returns:
-            Dict: 구조화된 평가 결과 (점수 포함)
+            Dict: 분석 결과 (score, reasoning, suggestions 등 포함)
         """
-        try:
-            # 입력 데이터에서 프로젝트 타입 추출
-            project_type = "balanced"  # 기본값
-            if isinstance(input, dict):
-                project_type = input.get('project_type', 'balanced')
-                if 'classification' in input and isinstance(input['classification'], dict):
-                    project_type = input['classification'].get('project_type', 'balanced')
-            
-            # 입력 데이터 처리
-            project_info = self._process_input(input)
-            
-            # NovaLiteLLM을 사용하여 비즈니스 가치 평가 수행
-            evaluation_result = self._evaluate_business_value(project_info, project_type)
-            
-            return evaluation_result
-            
-        except Exception as e:
-            print(f"비즈니스 가치 평가 중 오류 발생: {e}")
-            return {
-                "error": str(e),
-                "score": 0,
-                "reasoning": f"비즈니스 가치 평가 중 오류 발생: {str(e)}",
-                "suggestions": ["시스템 관리자에게 문의하세요"],
-                "evaluation_type": "error"
-            }
+        # 공통 유틸리티를 사용하여 프로젝트 타입 추출
+        project_type = ChainUtils.extract_project_type(data)
+        
+        # 공통 유틸리티를 사용하여 입력 데이터 처리
+        project_info = ChainUtils.process_input_data(data)
+        
+        # 비즈니스 가치 평가 수행
+        return self._evaluate_business_value(project_info, project_type)
 
 
     def _evaluate_business_value(self, project_info: str, project_type: str = "balanced") -> Dict[str, Any]:
@@ -93,30 +74,23 @@ class BusinessValueChain(Runnable):
         user_message = self._build_user_prompt(project_info, project_type)
         
         try:
-            # 설정에서 LLM 파라미터 로드
-            temperature = self.config_manager.get_config('system_config.yaml', 'llm.temperature', 0.3)
-            max_tokens = self.config_manager.get_config('system_config.yaml', 'llm.max_tokens', 3000)
+            # 공통 유틸리티를 사용하여 LLM 설정 로드
+            llm_config = ChainUtils.get_llm_config()
             
             # NovaLiteLLM 호출
             response = self.llm.invoke(
                 user_message=user_message,
                 system_message=system_message,
-                temperature=temperature,  # 설정에서 로드된 temperature 사용
-                max_tokens=max_tokens
+                temperature=llm_config['temperature'],
+                max_tokens=llm_config['max_tokens']
             )
             
-            # 응답 파싱 및 구조화
-            return self._parse_evaluation_response(response, project_type)
+            # 공통 유틸리티를 사용하여 응답 파싱
+            return ChainUtils.parse_llm_response(response, project_type)
             
         except Exception as e:
             print(f"LLM 호출 중 오류 발생: {e}")
-            return {
-                "error": f"LLM 호출 실패: {str(e)}",
-                "score": 0,
-                "reasoning": f"LLM 호출 실패: {str(e)}",
-                "suggestions": ["시스템 관리자에게 문의하세요"],
-                "evaluation_type": "error"
-            }
+            return ChainUtils.handle_llm_error(e, project_type)
 
     def _build_system_prompt(self, project_type: str = "balanced") -> str:
         """
@@ -185,110 +159,7 @@ class BusinessValueChain(Runnable):
             이미 분류된 프로젝트 유형({project_type})을 고려하여 평가하고, 반드시 JSON 형식으로만 응답해주세요."""
 
 
-    def _process_input(self, input: Input) -> str:
-        """
-        입력 데이터를 처리하여 문자열로 변환합니다.
-
-        Args:
-            input: 입력 데이터
-
-        Returns:
-            str: 처리된 프로젝트 정보
-        """
-        if isinstance(input, str):
-            return input
-        elif isinstance(input, dict):
-            # 딕셔너리인 경우 주요 필드들을 문자열로 변환
-            project_info = ""
-            if "title" in input:
-                project_info += f"프로젝트 제목: {input['title']}\n"
-            if "description" in input:
-                project_info += f"프로젝트 설명: {input['description']}\n"
-            if "content" in input:
-                project_info += f"내용: {input['content']}\n"
-            return project_info if project_info else str(input)
-        else:
-            return str(input)
-
-    def _parse_evaluation_response(self, response: str, project_type: str = "balanced") -> Dict[str, Any]:
-        """
-        LLM 응답을 파싱하여 구조화된 결과로 변환합니다.
-        
-        Args:
-            response: LLM 응답
-            project_type: 프로젝트 타입
-            
-        Returns:
-            Dict: 구조화된 평가 결과
-        """
-        try:
-            # JSON 부분 추출 시도
-            json_start = response.find('{')
-            json_end = response.rfind('}') + 1
-            
-            if json_start != -1 and json_end > json_start:
-                json_str = response[json_start:json_end]
-                result = json.loads(json_str)
-                
-                # 필수 필드 검증 및 기본값 설정
-                result.setdefault("score", 0)
-                result.setdefault("reasoning", "")
-                result.setdefault("suggestions", [])
-                
-                # 점수 유효성 검증
-                result["score"] = max(0, min(10, float(result["score"])))
-                
-                # 프로젝트 타입 정보 추가
-                result["project_type"] = project_type
-                result["evaluation_method"] = "llm_based_with_classification"
-                
-                return result
-            else:
-                # JSON 형식이 아닌 경우 기본 파싱 시도
-                return self._fallback_parse(response, project_type)
-                
-        except (json.JSONDecodeError, ValueError, KeyError) as e:
-            print(f"응답 파싱 실패: {e}")
-            return self._fallback_parse(response, project_type)
-
-
-    def _fallback_parse(self, response: str, project_type: str = "balanced") -> Dict[str, Any]:
-        """
-        JSON 파싱 실패 시 대체 파싱 방법을 사용합니다.
-        
-        Args:
-            response: LLM 응답
-            project_type: 프로젝트 타입
-            
-        Returns:
-            Dict: 기본 구조화된 결과
-        """
-        # 간단한 점수 추출 시도
-        import re
-        
-        # 점수 패턴 찾기
-        score_patterns = [
-            r'점수[:\s]*(\d+(?:\.\d+)?)',
-            r'score[:\s]*(\d+(?:\.\d+)?)',
-            r'(\d+(?:\.\d+)?)[점/점수]'
-        ]
-        
-        scores = []
-        for pattern in score_patterns:
-            matches = re.findall(pattern, response, re.IGNORECASE)
-            scores.extend([float(match) for match in matches])
-        
-        # 평균 점수 계산 (점수가 있는 경우)
-        avg_score = sum(scores) / len(scores) if scores else 5.0
-        avg_score = max(0, min(10, avg_score))
-        
-        return {
-            "score": avg_score,
-            "reasoning": response[:500] + "..." if len(response) > 500 else response,
-            "suggestions": ["응답 파싱 실패로 인한 기본값", "구조화된 응답 형식 개선 필요"],
-            "project_type": project_type,
-            "evaluation_method": "fallback_parsed"
-        }
+    # 공통 유틸리티 함수들을 사용하므로 _process_input, _parse_evaluation_response, _fallback_parse 메서드 제거
 
     def run(self):
         """
@@ -301,5 +172,24 @@ class BusinessValueChain(Runnable):
         test_project = "AI 기반 문서 자동 분류 시스템 개발 프로젝트"
         
         result = self.invoke(test_project)
-        return result.get("total_score", 0)
+        return result.get("score", 0)
+
+    def __call__(self, data):
+        """
+        기존 호환성을 위한 __call__ 메서드.
+        
+        Args:
+            data: 평가 데이터
+            
+        Returns:
+            Dict: 평가 결과
+        """
+        # invoke 메서드를 통해 표준화된 처리 수행
+        return self.invoke(data)
+
+    def as_runnable(self):
+        """
+        해당 클래스를 LangChain Runnable로 변환
+        """
+        return self
 

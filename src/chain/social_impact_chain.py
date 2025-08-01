@@ -1,309 +1,175 @@
 # -*- coding: utf-8 -*-
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-import json
-import re
 import yaml
-from typing import Dict, Any, List
-from .base_evaluation_chain import EvaluationChainBase
+import json
+from typing import Optional, Any, Dict
+
+from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables.utils import Input, Output
+
+from src.llm.nova_lite_llm import NovaLiteLLM
+from src.config.config_manager import get_config_manager
+from src.chain.base_evaluation_chain import EvaluationChainBase
+from src.chain.chain_utils import ChainUtils
 
 
 class SocialImpactChain(EvaluationChainBase):
     """
     사회적 영향도 체인.
-    프로젝트의 사회적 가치와 사회 문제 해결 기여도를 평가합니다.
-    
-    사회적 가치 창출, 포용성, 지역사회 기여, 사회 문제 해결 등을 종합적으로 분석합니다.
+    NovaLiteLLM을 사용하여 프로젝트의 사회적 영향도를 평가합니다.
     """
 
-    def __init__(self, llm=None, config_path: str = "src/config/settings/evaluation/evaluation.yaml"):
+    def __init__(self, config_path: str = "src/config/settings/evaluation/evaluation.yaml"):
         super().__init__("SocialImpactChain")
-        if llm is None:
-            from src.llm.nova_lite_llm import NovaLiteLLM
-            self.llm = NovaLiteLLM()
-        else:
-            self.llm = llm
-        self.output_parser = StrOutputParser()
         self._load_evaluation_criteria(config_path)
+        self.llm = NovaLiteLLM()
+        self.config_manager = get_config_manager()
 
     def _load_evaluation_criteria(self, config_path: str):
-        """evaluation.yaml에서 SocialImpact 평가 기준을 로드합니다."""
         try:
             with open(config_path, 'r', encoding='utf-8') as file:
                 criteria = yaml.safe_load(file)
-            
-            social_impact = criteria.get('SocialImpact', {})
-            self.pain_killer_criteria = social_impact.get('pain_killer', [])
-            self.vitamin_criteria = social_impact.get('vitamin', [])
-            
+
+            social_impact = criteria['SocialImpact']
+            self.pain_killer_evaluation_list = social_impact['pain_killer']
+            self.vitamin_evaluation_list = social_impact['vitamin']
+
         except Exception as e:
-            self.logger.warning(f"평가 기준 로드 실패, 기본값 사용: {e}")
-            self.pain_killer_criteria = [
-                "자료에서 제시한 사회적 약자의 문제가 생존 및 안전과 직결하는가?",
-                "기존 지원 시스템의 한계가 심각한가?"
-            ]
-            self.vitamin_criteria = [
-                "장기적인 사회적 가치를 제공하는가?",
-                "사회적 인식 개선에 기여하는가?"
-            ]
-
-        # 사회적 영향도 평가 프롬프트 템플릿
-        self.prompt_template = ChatPromptTemplate.from_template("""
-        ## 평가 대상: 해커톤 프로젝트 사회적 영향도 평가
-
-        ### 프로젝트 정보:
-        - 프로젝트명: {project_name}
-        - 설명: {description}
-        - 기술: {technology}
-        - 타겟 사용자: {target_users}
-        - 비즈니스 모델: {business_model}
-
-        ### 분류:
-        - 이 프로젝트는 {classification} 유형으로 분류되었습니다.
-
-        ### 종합 분석:
-        {material_analysis}
-
-        ### 데이터 제한사항:
-        {data_limitations}
-
-        ## 사회적 영향도 평가 지침:
-        1. **사회 문제 해결**: 실제 사회 문제를 해결하거나 완화하는 정도
-        2. **사회적 가치 창출**: 경제적 이익을 넘어선 사회적 가치 제공
-        3. **포용성과 접근성**: 소외계층이나 취약계층의 접근성 고려
-        4. **지역사회 기여**: 지역사회 발전과 상생에 기여하는 정도
-        5. **지속가능한 사회적 변화**: 장기적이고 지속가능한 사회적 변화 유도
-
-        ## 사회적 영향도 평가 기준:
-        {evaluation_criteria}
-
-        ## 평가 수행:
-        위 기준에 따라 {classification} 유형 프로젝트의 사회적 영향도를 0-10점 척도로 평가해주세요.
-        다음 형식으로 JSON 응답을 제공해주세요:
-        ```json
-        {{
-            "score": [0-10 사이의 점수],
-            "reasoning": "[평가 근거 설명 - 구체적인 사회적 영향과 기여도 분석]",
-            "suggestions": ["[개선 제안1]", "[개선 제안2]", "[개선 제안3]"],
-            "impact_analysis": {{
-                "problem_solving": "[사회 문제 해결 분석]",
-                "value_creation": "[사회적 가치 창출 분석]",
-                "inclusivity": "[포용성 및 접근성 분석]",
-                "community_contribution": "[지역사회 기여 분석]"
-            }},
-            "target_beneficiaries": ["[수혜 대상1]", "[수혜 대상2]"],
-            "social_challenges": ["[해결하는 사회 문제1]", "[해결하는 사회 문제2]"],
-            "impact_aspects": {{
-                "problem_solving_effectiveness": [0-10],
-                "social_value_creation": [0-10],
-                "inclusivity_accessibility": [0-10],
-                "community_contribution": [0-10],
-                "sustainability": [0-10]
-            }}
-        }}
-        ```
-
-        결과는 반드시 유효한 JSON 형식이어야 합니다. 다른 텍스트는 포함하지 마세요.
-        """)
+            print(f"YAML 로드 실패, 기본값 사용: {e}")
+            raise FileNotFoundError(e)
 
     def _analyze(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        실제 사회적 영향도 분석 로직을 수행합니다.
+        EvaluationChainBase의 추상 메서드 구현.
+        사회적 영향도 평가 로직을 실행합니다.
         
         Args:
             data: 전처리된 입력 데이터
             
         Returns:
-            Dict: 사회적 영향도 분석 결과
+            Dict: 분석 결과 (score, reasoning, suggestions 등 포함)
         """
-        # 데이터 제한사항 확인
-        limitations = self._check_data_availability(data)
+        # 공통 유틸리티를 사용하여 프로젝트 타입 추출
+        project_type = ChainUtils.extract_project_type(data)
         
-        # 이미 분류된 프로젝트 타입 추출
-        project_type = "balanced"  # 기본값
-        if 'project_type' in data:
-            project_type = data['project_type']
-        elif 'classification' in data and isinstance(data['classification'], dict):
-            project_type = data['classification'].get('project_type', 'balanced')
+        # 공통 유틸리티를 사용하여 입력 데이터 처리
+        project_info = ChainUtils.process_input_data(data)
         
-        # 필요한 데이터 추출
-        parsed_data = data.get("parsed_data", {})
-        classification = project_type  # 이미 분류된 타입 사용
-        material_analysis = data.get("material_analysis", "")
+        # 사회적 영향도 평가 수행
+        return self._evaluate_social_impact(project_info, project_type)
+    def _evaluate_social_impact(self, project_info: str, project_type: str = "balanced") -> Dict[str, Any]:
+        """
+        NovaLiteLLM을 사용하여 사회적 영향도를 평가합니다.
         
-        # 데이터 제한사항 메시지 생성
-        limitations_text = ""
-        if limitations:
-            limitations_text = "다음 제한사항이 있습니다: " + ", ".join(limitations)
-        else:
-            limitations_text = "모든 자료가 충분히 제공되었습니다."
-
-        # 프로젝트 타입에 따른 평가 기준 선택
-        if project_type.lower() == 'painkiller':
-            criteria = "\n".join([f"- {criteria}" for criteria in self.pain_killer_criteria])
-            criteria_type = "Pain Killer 기준 (필수적 사회적 문제 해결)"
-        elif project_type.lower() == 'vitamin':
-            criteria = "\n".join([f"- {criteria}" for criteria in self.vitamin_criteria])
-            criteria_type = "Vitamin 기준 (부가적 사회적 가치 제공)"
-        else:  # balanced
-            pain_killer_criteria = "\n".join([f"- {criteria}" for criteria in self.pain_killer_criteria])
-            vitamin_criteria = "\n".join([f"- {criteria}" for criteria in self.vitamin_criteria])
-            criteria = f"**Pain Killer 기준:**\n{pain_killer_criteria}\n\n**Vitamin 기준:**\n{vitamin_criteria}"
-            criteria_type = "Pain Killer + Vitamin 기준 (균형적 사회적 영향)"
-
-        # 프롬프트 구성
-        prompt = self.prompt_template.format(
-            project_name=parsed_data.get("project_name", "정보 없음"),
-            description=parsed_data.get("description", "정보 없음"),
-            technology=parsed_data.get("technology", "정보 없음"),
-            target_users=parsed_data.get("target_users", "정보 없음"),
-            business_model=parsed_data.get("business_model", "정보 없음"),
-            classification=f"{classification.upper()} ({criteria_type})",
-            material_analysis=material_analysis or "종합 분석 정보가 제공되지 않았습니다.",
-            data_limitations=limitations_text,
-            evaluation_criteria=f"**{criteria_type}:**\n{criteria}"
-        )
-
+        Args:
+            project_info: 평가할 프로젝트 정보
+            project_type: 이미 분류된 프로젝트 타입 (painkiller/vitamin/balanced)
+            
+        Returns:
+            Dict: 구조화된 평가 결과
+        """
+        # 시스템 프롬프트 구성 (프로젝트 타입 반영)
+        system_message = self._build_system_prompt(project_type)
+        
+        # 사용자 메시지 구성
+        user_message = self._build_user_prompt(project_info, project_type)
+        
         try:
-            # LLM 호출
-            response = self.llm.invoke(prompt)
-            result_text = self.output_parser.invoke(response)
-
-            # JSON 파싱
-            result = self._parse_llm_response(result_text)
+            # 공통 유틸리티를 사용하여 LLM 설정 로드
+            llm_config = ChainUtils.get_llm_config()
             
-            # 프로젝트 타입 정보 추가
-            result["project_type"] = project_type
-            result["evaluation_focus"] = f"{project_type} 유형 기반 사회적 영향도 평가"
+            # NovaLiteLLM 호출
+            response = self.llm.invoke(
+                user_message=user_message,
+                system_message=system_message,
+                temperature=llm_config['temperature'],
+                max_tokens=llm_config['max_tokens']
+            )
             
-            # 데이터 제한사항이 있는 경우 결과에 추가
-            if limitations:
-                result["data_limitations"] = "; ".join(limitations)
+            # 공통 유틸리티를 사용하여 응답 파싱
+            return ChainUtils.parse_llm_response(response, project_type)
             
-            return result
-
         except Exception as e:
-            self.logger.error(f"사회적 영향도 분석 중 오류 발생: {str(e)}")
-            return self._get_fallback_result(limitations, project_type)
-    
-    def _parse_llm_response(self, result_text: str) -> Dict[str, Any]:
-        """
-        LLM 응답을 파싱하여 구조화된 결과로 변환합니다.
-        
-        Args:
-            result_text: LLM 응답 텍스트
-            
-        Returns:
-            Dict: 파싱된 결과
-        """
-        try:
-            # JSON 부분만 추출
-            json_match = re.search(r'\{\s*"score".*\}', result_text, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(0)
-                result = json.loads(json_str)
-            else:
-                # 전체 텍스트를 JSON으로 파싱 시도
-                result = json.loads(result_text)
-            
-            # 결과 검증 및 정규화
-            return self._validate_and_normalize_result(result)
+            print(f"LLM 호출 중 오류 발생: {e}")
+            return ChainUtils.handle_llm_error(e, project_type)
 
-        except json.JSONDecodeError as e:
-            self.logger.warning(f"JSON 파싱 실패: {str(e)}")
-            return self._get_fallback_result()
-    
-    def _validate_and_normalize_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_system_prompt(self, project_type: str = "balanced") -> str:
         """
-        분석 결과를 검증하고 정규화합니다.
+        사회적 영향도 평가를 위한 시스템 프롬프트를 구성합니다.
         
         Args:
-            result: 원본 분석 결과
+            project_type: 이미 분류된 프로젝트 타입
             
         Returns:
-            Dict: 검증 및 정규화된 결과
+            str: 시스템 프롬프트
         """
-        # 필수 필드 확인 및 기본값 설정
-        normalized_result = {
-            "score": self._validate_score(result.get("score", 0)),
-            "reasoning": result.get("reasoning", "사회적 영향도 평가가 완료되었습니다."),
-            "suggestions": result.get("suggestions", []),
-            "impact_analysis": result.get("impact_analysis", {}),
-            "target_beneficiaries": result.get("target_beneficiaries", []),
-            "social_challenges": result.get("social_challenges", []),
-            "impact_aspects": result.get("impact_aspects", {})
-        }
+        pain_killer_criteria = "\n".join([f"- {criteria}" for criteria in self.pain_killer_evaluation_list])
+        vitamin_criteria = "\n".join([f"- {criteria}" for criteria in self.vitamin_evaluation_list])
         
-        # suggestions가 리스트가 아닌 경우 변환
-        if not isinstance(normalized_result["suggestions"], list):
-            normalized_result["suggestions"] = [str(normalized_result["suggestions"])]
+        # 프로젝트 타입에 따른 평가 가중치 설정
+        if project_type.lower() == 'painkiller':
+            weight_instruction = "이 프로젝트는 PainKiller 유형으로 분류되었으므로, Pain Killer 기준에 맞춰 평가하세요."
+            evaluation_criteria = pain_killer_criteria
+
+        elif project_type.lower() == 'vitamin':
+            weight_instruction = "이 프로젝트는 Vitamin 유형으로 분류되었으므로, Vitamin 기준에 맞춰 평가하세요."
+            evaluation_criteria = vitamin_criteria
+        else:
+            weight_instruction = "이 프로젝트는 Balanced 유형으로 분류되었으므로, 두 기준을 균등하게 평가하세요."
+            evaluation_criteria = pain_killer_criteria + vitamin_criteria + "평가항목에 대해서 균등하게 적용할 수 있도록 하세요"
+
+        return f"""당신은 사회적 영향도 평가 전문가입니다. 이미 분류된 프로젝트 유형({project_type})을 고려하여 서비스의 사회적 영향도를 평가해주세요.
         
-        # 빈 suggestions인 경우 기본값 제공
-        if not normalized_result["suggestions"]:
-            normalized_result["suggestions"] = [
-                "구체적인 사회 문제 해결 방안 명시",
-                "소외계층을 위한 접근성 개선 방안 추가",
-                "지역사회와의 협력 체계 구축"
-            ]
+        {weight_instruction}
         
-        return normalized_result
-    
-    def _validate_score(self, score: Any) -> float:
+        평가 기준:
+        
+        **평가기준:**
+        {evaluation_criteria}
+        
+        평가 방법:
+        1. 각 기준에 대해 1-10점으로 평가
+        2. 프로젝트 타입에 따른 가중치 적용
+        
+        **중요: 응답은 반드시 아래 JSON 형식만으로 제공해주세요. 다른 설명이나 텍스트는 포함하지 마세요.**
+        
+        ```json
+        {{
+            "score": 숫자,
+            "reasoning": "평가에 대한 상세한 근거를 설명, 점수에 대한 명확한 근거가 있어야 하며, 20년차 전문가가 봐도 납득할만한 이유여야 함.",
+            "suggestions": ["개선점1", "개선점2", "개선점3"]
+        }}
+        ```"""
+
+    def _build_user_prompt(self, project_info: str, project_type: str = "balanced") -> str:
         """
-        점수를 검증하고 유효한 범위로 조정합니다.
+        사용자 프롬프트를 구성합니다.
         
         Args:
-            score: 원본 점수
+            project_info: 프로젝트 정보
+            project_type: 이미 분류된 프로젝트 타입
             
         Returns:
-            float: 검증된 점수 (0.0-10.0)
+            str: 사용자 프롬프트
         """
-        try:
-            score_float = float(score)
-            return max(0.0, min(10.0, score_float))
-        except (ValueError, TypeError):
-            self.logger.warning(f"유효하지 않은 점수 값: {score}, 기본값 5.0 사용")
-            return 5.0
-    
-    def _get_fallback_result(self, limitations: List[str] = None, project_type: str = "balanced") -> Dict[str, Any]:
-        """
-        오류 상황에서 사용할 기본 결과를 반환합니다.
-        
-        Args:
-            limitations: 데이터 제한사항 목록
+        return f"""다음 프로젝트의 사회적 영향도를 평가해주세요:
+
+            **프로젝트 분류**: {project_type.upper()} 유형
+            **프로젝트 정보**: {project_info}
             
-        Returns:
-            Dict: 기본 결과
+            이미 분류된 프로젝트 유형({project_type})을 고려하여 평가하고, 반드시 JSON 형식으로만 응답해주세요."""
+
+    def run(self):
         """
-        result = {
-            "score": 5.0,
-            "reasoning": "사회적 영향도 평가를 완료할 수 없어 기본 점수를 제공합니다. 추가 정보가 필요합니다.",
-            "suggestions": [
-                "해결하고자 하는 사회 문제 명확히 정의",
-                "사회적 가치 창출 방안 구체화",
-                "수혜 대상과 영향 범위 명시"
-            ],
-            "impact_analysis": {
-                "problem_solving": "정보 부족으로 분석 불가",
-                "value_creation": "정보 부족으로 분석 불가",
-                "inclusivity": "정보 부족으로 분석 불가",
-                "community_contribution": "정보 부족으로 분석 불가"
-            },
-            "target_beneficiaries": ["평가 정보 부족"],
-            "social_challenges": ["사회적 영향 분석을 위한 충분한 정보 부족"],
-            "impact_aspects": {
-                "problem_solving_effectiveness": 5.0,
-                "social_value_creation": 5.0,
-                "inclusivity_accessibility": 5.0,
-                "community_contribution": 5.0,
-                "sustainability": 5.0
-            }
-        }
+        사회적 영향도 분석을 실행하고 점수를 반환합니다.
         
-        if limitations:
-            result["data_limitations"] = "; ".join(limitations)
+        Returns:
+            float: 사회적 영향도 점수 (0-10)
+        """
+        # 기본 테스트용 프로젝트 정보
+        test_project = "AI 기반 문서 자동 분류 시스템 개발 프로젝트"
         
-        return result
+        result = self.invoke(test_project)
+        return result.get("score", 0)
 
     def __call__(self, data):
         """
@@ -315,6 +181,7 @@ class SocialImpactChain(EvaluationChainBase):
         Returns:
             Dict: 평가 결과
         """
+        # invoke 메서드를 통해 표준화된 처리 수행
         return self.invoke(data)
 
     def as_runnable(self):

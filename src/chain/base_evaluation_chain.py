@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-import time
 import logging
+import time
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List
+
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.runnables.utils import Input, Output
 
@@ -228,3 +229,4 @@ class EvaluationChainBase(Runnable, ABC):
         """
         result = self.invoke({})
         return result.get("score", 0.0)
+

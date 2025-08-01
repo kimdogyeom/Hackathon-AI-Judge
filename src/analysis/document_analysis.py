@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from src.analysis.base_analysis import BaseAnalysis
 from src.llm.nova_lite_llm import NovaLiteLLM
-from src.config.config import get_system_prompt
+from src.config.config_manager import get_system_prompt
 
 
 class DocumentAnalysis(BaseAnalysis):

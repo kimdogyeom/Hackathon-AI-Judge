@@ -1,0 +1,51 @@
+# LLM 기반 프로젝트 분류 설정
+# 이 파일은 LLM을 사용한 PainKiller/Vitamin/Balanced 분류 설정을 정의합니다.
+
+llm_classification:
+  # LLM 분류 기능 활성화 여부
+  enabled: true
+  
+  # LLM 호출 설정
+  llm_config:
+    # Nova Lite 모델 (일반 분류 및 평가용)
+    nova_lite:
+      model_id: "amazon.nova-lite-v1:0"
+      temperature: 0.2  # 일관된 분류를 위해 낮은 값 사용
+      max_tokens: 4000
+      timeout: 60
+      max_retries: 3
+      retry_delay: 1.0
+    
+    # Nova Pro 모델 (비디오 분석 전용)
+    nova_pro:
+      model_id: "amazon.nova-pro-v1:0"
+      temperature: 0.2  # 비디오 분석시 약간 더 창의적 응답
+      max_tokens: 8000  # 비디오 분석 결과를 위한 더 큰 토큰 수
+      timeout: 180      # 비디오 처리를 위한 더 긴 타임아웃
+      max_retries: 2    # 비용 고려하여 재시도 횟수 감소
+      retry_delay: 2.0  # 더 긴 재시도 간격
+    
+  # 파싱 및 재시도 설정
+  parsing_config:
+    max_parse_retries: 2  # 파싱 실패시 최대 재시도 횟수
+    use_simpler_prompt_on_retry: true  # 재시도시 간단한 프롬프트 사용
+    use_regex_fallback: true  # 정규식 기반 폴백 사용
+    
+  # 신뢰도 임계값 설정
+  confidence_thresholds:
+    high_confidence: 0.8
+    medium_confidence: 0.6
+    low_confidence: 0.4
+    
+  # 오류 처리 설정
+  error_handling:
+    raise_on_failure: true  # LLM 실패시 예외 발생 (기본값 설정 안함)
+    max_retry_attempts: 3   # 최대 재시도 횟수
+    fallback_enabled: false # 폴백 비활성화
+    
+  # 로깅 설정
+  logging:
+    log_llm_requests: true
+    log_llm_responses: false  # 보안상 기본적으로 비활성화
+    log_parsing_failures: true
+    log_performance_metrics: true

@@ -1,323 +1,304 @@
 # -*- coding: utf-8 -*-
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-import json
-import re
 import yaml
-from typing import Dict, Any, List
-from .base_evaluation_chain import EvaluationChainBase
+import json
+from typing import Optional, Any, Dict
+
+from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables.utils import Input, Output
+
+from src.llm.nova_lite_llm import NovaLiteLLM
+from src.config.config_manager import get_config_manager
+from src.chain.base_evaluation_chain import EvaluationChainBase
+from src.chain.chain_utils import ChainUtils
 
 
 class UserEngagementChain(EvaluationChainBase):
     """
     사용자 참여도 체인.
-    프로젝트의 UX/UI 품질과 사용자 만족도를 평가합니다.
-    
-    사용자 경험, 인터페이스 디자인, 사용성, 참여 유도 요소 등을 종합적으로 분석합니다.
+    NovaLiteLLM을 사용하여 프로젝트의 사용자 참여도를 평가합니다.
     """
 
-    def __init__(self, llm=None, config_path: str = "src/config/settings/evaluation/evaluation.yaml"):
+    def __init__(self, config_path: str = "src/config/settings/evaluation/evaluation.yaml"):
         super().__init__("UserEngagementChain")
-        if llm is None:
-            from src.llm.nova_lite_llm import NovaLiteLLM
-            self.llm = NovaLiteLLM()
-        else:
-            self.llm = llm
-        self.output_parser = StrOutputParser()
         self._load_evaluation_criteria(config_path)
+        self.llm = NovaLiteLLM()
+        self.config_manager = get_config_manager()
 
     def _load_evaluation_criteria(self, config_path: str):
         """evaluation.yaml에서 UserEngagement 평가 기준을 로드합니다."""
         try:
             with open(config_path, 'r', encoding='utf-8') as file:
                 criteria = yaml.safe_load(file)
-            
-            user_engagement = criteria.get('UserEngagement', {})
-            self.pain_killer_criteria = user_engagement.get('pain_killer', [])
-            self.vitamin_criteria = user_engagement.get('vitamin', [])
-            
+
+            user_engagement = criteria['UserEngagement']
+            self.pain_killer_evaluation_list = user_engagement['pain_killer']
+            self.vitamin_evaluation_list = user_engagement['vitamin']
+
         except Exception as e:
-            self.logger.warning(f"평가 기준 로드 실패, 기본값 사용: {e}")
-            self.pain_killer_criteria = [
-                "감정적 고통(외로움, 스트레스 등)을 해결해주는가?",
-                "기존 해결책의 한계와 접근성 문제가 심각한가?"
-            ]
-            self.vitamin_criteria = [
-                "오락 및 재미 요소를 제공하는가?",
-                "사용자 만족도와 몰입도를 높이는가?"
-            ]
+            print(f"YAML 로드 실패, 기본값 사용: {e}")
+            raise FileNotFoundError(e)
 
-        # 사용자 참여도 평가 프롬프트 템플릿
-        self.prompt_template = ChatPromptTemplate.from_template("""
-        ## 평가 대상: 해커톤 프로젝트 사용자 참여도 평가
 
-        ### 프로젝트 정보:
-        - 프로젝트명: {project_name}
-        - 설명: {description}
-        - 기술: {technology}
-        - 타겟 사용자: {target_users}
-        - 비즈니스 모델: {business_model}
-
-        ### 분류:
-        - 이 프로젝트는 {classification} 유형으로 분류되었습니다.
-
-        ### 종합 분석:
-        {material_analysis}
-
-        ### 데이터 제한사항:
-        {data_limitations}
-
-        ## 사용자 참여도 평가 지침:
-        1. **사용자 경험 (UX)**: 
-           - 사용자 여정과 플로우의 직관성
-           - 사용 편의성과 학습 곡선
-           - 사용자 니즈 충족도
-        2. **사용자 인터페이스 (UI)**:
-           - 시각적 디자인과 일관성
-           - 반응형 디자인과 접근성
-           - 인터랙션 디자인 품질
-        3. **참여 유도 요소**:
-           - 게임화 요소와 동기 부여
-           - 개인화와 맞춤형 경험
-           - 소셜 기능과 커뮤니티 요소
-        4. **사용성과 만족도**:
-           - 사용 편의성과 효율성
-           - 오류 방지와 복구 기능
-           - 전반적인 사용자 만족도
-
-        ## 사용자 참여도 평가 기준:
-        {evaluation_criteria}
-
-        ## 평가 수행:
-        위 기준에 따라 {classification} 유형 프로젝트의 사용자 참여도를 0-10점 척도로 평가해주세요.
-        다음 형식으로 JSON 응답을 제공해주세요:
-        ```json
-        {{
-            "score": [0-10 사이의 점수],
-            "reasoning": "[평가 근거 설명 - 구체적인 UX/UI 분석과 사용자 참여도 평가]",
-            "suggestions": ["[개선 제안1]", "[개선 제안2]", "[개선 제안3]"],
-            "engagement_analysis": {{
-                "user_experience": "[사용자 경험 분석]",
-                "user_interface": "[사용자 인터페이스 분석]",
-                "engagement_features": "[참여 유도 요소 분석]",
-                "usability_satisfaction": "[사용성과 만족도 분석]"
-            }},
-            "ux_strengths": ["[UX/UI 강점1]", "[UX/UI 강점2]"],
-            "usability_issues": ["[사용성 문제1]", "[사용성 문제2]"],
-            "engagement_aspects": {{
-                "user_experience_quality": [0-10],
-                "interface_design_quality": [0-10],
-                "engagement_features": [0-10],
-                "usability_efficiency": [0-10],
-                "user_satisfaction_potential": [0-10]
-            }}
-        }}
-        ```
-
-        결과는 반드시 유효한 JSON 형식이어야 합니다. 다른 텍스트는 포함하지 마세요.
-        """)
 
     def _analyze(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        실제 사용자 참여도 분석 로직을 수행합니다.
+        EvaluationChainBase의 추상 메서드 구현.
+        사용자 참여도 평가 로직을 실행합니다.
         
         Args:
             data: 전처리된 입력 데이터
             
         Returns:
-            Dict: 사용자 참여도 분석 결과
+            Dict: 분석 결과 (score, reasoning, suggestions 등 포함)
         """
-        # 데이터 제한사항 확인
-        limitations = self._check_data_availability(data)
+        # 공통 유틸리티를 사용하여 프로젝트 타입 추출
+        project_type = ChainUtils.extract_project_type(data)
         
-        # 이미 분류된 프로젝트 타입 추출
-        project_type = "balanced"  # 기본값
-        if 'project_type' in data:
-            project_type = data['project_type']
-        elif 'classification' in data and isinstance(data['classification'], dict):
-            project_type = data['classification'].get('project_type', 'balanced')
+        # 공통 유틸리티를 사용하여 입력 데이터 처리
+        project_info = ChainUtils.process_input_data(data)
         
-        # 필요한 데이터 추출
-        parsed_data = data.get("parsed_data", {})
-        classification = project_type  # 이미 분류된 타입 사용
-        material_analysis = data.get("material_analysis", "")
+        # 사용자 참여도 평가 수행
+        return self._evaluate_user_engagement(project_info, project_type)
+
+
+    def _evaluate_user_engagement(self, project_info: str, project_type: str = "balanced") -> Dict[str, Any]:
+        """
+        NovaLiteLLM을 사용하여 사용자 참여도를 평가합니다.
         
-        # 데이터 제한사항 메시지 생성
-        limitations_text = ""
-        if limitations:
-            limitations_text = "다음 제한사항이 있습니다: " + ", ".join(limitations)
-        else:
-            limitations_text = "모든 자료가 충분히 제공되었습니다."
-
-        # 프로젝트 타입에 따른 평가 기준 선택
-        if project_type.lower() == 'painkiller':
-            criteria = "\n".join([f"- {criteria}" for criteria in self.pain_killer_criteria])
-            criteria_type = "Pain Killer 기준 (필수적 사용자 문제 해결)"
-            evaluation_focus = "문제 해결 과정에서의 사용 편의성과 효율성"
-        elif project_type.lower() == 'vitamin':
-            criteria = "\n".join([f"- {criteria}" for criteria in self.vitamin_criteria])
-            criteria_type = "Vitamin 기준 (부가적 사용자 경험 향상)"
-            evaluation_focus = "사용자 경험의 즐거움과 참여 유도 요소"
-        else:  # balanced
-            pain_killer_criteria = "\n".join([f"- {criteria}" for criteria in self.pain_killer_criteria])
-            vitamin_criteria = "\n".join([f"- {criteria}" for criteria in self.vitamin_criteria])
-            criteria = f"**Pain Killer 기준:**\n{pain_killer_criteria}\n\n**Vitamin 기준:**\n{vitamin_criteria}"
-            criteria_type = "Pain Killer + Vitamin 기준 (균형적 사용자 참여도)"
-            evaluation_focus = "실용성과 즐거움의 균형적 사용자 경험"
-
-        # 프롬프트 구성
-        prompt = self.prompt_template.format(
-            project_name=parsed_data.get("project_name", "정보 없음"),
-            description=parsed_data.get("description", "정보 없음"),
-            technology=parsed_data.get("technology", "정보 없음"),
-            target_users=parsed_data.get("target_users", "정보 없음"),
-            business_model=parsed_data.get("business_model", "정보 없음"),
-            classification=f"{classification.upper()} (평가 초점: {evaluation_focus})",
-            material_analysis=material_analysis or "종합 분석 정보가 제공되지 않았습니다.",
-            data_limitations=limitations_text,
-            evaluation_criteria=f"**{criteria_type}:**\n{criteria}"
-        )
-
+        Args:
+            project_info: 평가할 프로젝트 정보
+            project_type: 이미 분류된 프로젝트 타입 (painkiller/vitamin/balanced)
+            
+        Returns:
+            Dict: 구조화된 평가 결과
+        """
+        # 시스템 프롬프트 구성 (프로젝트 타입 반영)
+        system_message = self._build_system_prompt(project_type)
+        
+        # 사용자 메시지 구성
+        user_message = self._build_user_prompt(project_info, project_type)
+        
         try:
-            # LLM 호출
-            response = self.llm.invoke(prompt)
-            result_text = self.output_parser.invoke(response)
-
-            # JSON 파싱
-            result = self._parse_llm_response(result_text)
+            # 공통 유틸리티를 사용하여 LLM 설정 로드
+            llm_config = ChainUtils.get_llm_config()
             
-            # 프로젝트 타입 정보 추가
-            result["project_type"] = project_type
-            result["evaluation_focus"] = f"{project_type} 유형 기반 사용자 참여도 평가"
+            # NovaLiteLLM 호출
+            response = self.llm.invoke(
+                user_message=user_message,
+                system_message=system_message,
+                temperature=llm_config['temperature'],
+                max_tokens=llm_config['max_tokens']
+            )
             
-            # 데이터 제한사항이 있는 경우 결과에 추가
-            if limitations:
-                result["data_limitations"] = "; ".join(limitations)
+            # 공통 유틸리티를 사용하여 응답 파싱
+            result = ChainUtils.parse_llm_response(response, project_type)
             
-            return result
-
+            # 사용자 참여도 평가에 특화된 결과 검증 및 보완
+            return self._validate_user_engagement_result(result, project_type)
+            
         except Exception as e:
-            self.logger.error(f"사용자 참여도 분석 중 오류 발생: {str(e)}")
-            return self._get_fallback_result(limitations, project_type)
-    
-    def _parse_llm_response(self, result_text: str) -> Dict[str, Any]:
-        """
-        LLM 응답을 파싱하여 구조화된 결과로 변환합니다.
-        
-        Args:
-            result_text: LLM 응답 텍스트
-            
-        Returns:
-            Dict: 파싱된 결과
-        """
-        try:
-            # JSON 부분만 추출
-            json_match = re.search(r'\{\s*"score".*\}', result_text, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(0)
-                result = json.loads(json_str)
-            else:
-                # 전체 텍스트를 JSON으로 파싱 시도
-                result = json.loads(result_text)
-            
-            # 결과 검증 및 정규화
-            return self._validate_and_normalize_result(result)
+            print(f"LLM 호출 중 오류 발생: {e}")
+            return self._get_user_engagement_fallback_result(e, project_type)
 
-        except json.JSONDecodeError as e:
-            self.logger.warning(f"JSON 파싱 실패: {str(e)}")
-            return self._get_fallback_result()
-    
-    def _validate_and_normalize_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_system_prompt(self, project_type: str = "balanced") -> str:
         """
-        분석 결과를 검증하고 정규화합니다.
+        사용자 참여도 평가를 위한 시스템 프롬프트를 구성합니다.
         
         Args:
-            result: 원본 분석 결과
+            project_type: 이미 분류된 프로젝트 타입
             
         Returns:
-            Dict: 검증 및 정규화된 결과
+            str: 시스템 프롬프트
         """
-        # 필수 필드 확인 및 기본값 설정
-        normalized_result = {
-            "score": self._validate_score(result.get("score", 0)),
-            "reasoning": result.get("reasoning", "사용자 참여도 평가가 완료되었습니다."),
+        pain_killer_criteria = "\n".join([f"- {criteria}" for criteria in self.pain_killer_evaluation_list])
+        vitamin_criteria = "\n".join([f"- {criteria}" for criteria in self.vitamin_evaluation_list])
+        
+        # 프로젝트 타입에 따른 평가 가중치 설정
+        if project_type.lower() == 'painkiller':
+            weight_instruction = "이 프로젝트는 PainKiller 유형으로 분류되었으므로, Pain Killer 기준에 맞춰 평가하세요."
+            evaluation_criteria = pain_killer_criteria
+
+        elif project_type.lower() == 'vitamin':
+            weight_instruction = "이 프로젝트는 Vitamin 유형으로 분류되었으므로, Vitamin 기준에 맞춰 평가하세요."
+            evaluation_criteria = vitamin_criteria
+        else:
+            weight_instruction = "이 프로젝트는 Balanced 유형으로 분류되었으므로, 두 기준을 균등하게 평가하세요."
+            evaluation_criteria = pain_killer_criteria + vitamin_criteria + "평가항목에 대해서 균등하게 적용할 수 있도록 하세요"
+
+        return f"""당신은 사용자 참여도 평가 전문가입니다. 이미 분류된 프로젝트 유형({project_type})을 고려하여 서비스의 사용자 참여도를 평가해주세요.
+        
+        {weight_instruction}
+        
+        ## 사용자 참여도 평가 영역:
+        1. **사용자 경험 (UX)**: 사용자 여정, 직관성, 학습 곡선, 니즈 충족도
+        2. **사용자 인터페이스 (UI)**: 시각적 디자인, 일관성, 반응형 디자인, 접근성
+        3. **참여 유도 요소**: 게임화, 개인화, 소셜 기능, 커뮤니티 요소
+        4. **사용성과 만족도**: 편의성, 효율성, 오류 처리, 전반적 만족도
+        
+        ## 프로젝트 타입별 평가 기준:
+        **{project_type.upper()} 유형 기준:**
+        {evaluation_criteria}
+        
+        평가 방법:
+        1. 각 기준에 대해 1-10점으로 평가
+        2. 프로젝트 타입({project_type})에 따른 가중치 적용
+        3. 사용자 참여도의 4가지 영역을 종합적으로 고려
+        
+        **중요: 응답은 반드시 아래 JSON 형식만으로 제공해주세요. 다른 설명이나 텍스트는 포함하지 마세요.**
+        
+        ```json
+        {{
+            "score": 숫자,
+            "reasoning": "평가에 대한 상세한 근거를 설명, 점수에 대한 명확한 근거가 있어야 하며, 20년차 전문가가 봐도 납득할만한 이유여야 함. UX/UI, 참여 유도 요소, 사용성 관점에서 구체적으로 분석.",
+            "suggestions": ["개선점1", "개선점2", "개선점3"]
+        }}
+        ```"""
+
+    def _build_user_prompt(self, project_info: str, project_type: str = "balanced") -> str:
+        """
+        사용자 프롬프트를 구성합니다.
+        
+        Args:
+            project_info: 프로젝트 정보
+            project_type: 이미 분류된 프로젝트 타입
+            
+        Returns:
+            str: 사용자 프롬프트
+        """
+        return f"""다음 프로젝트의 사용자 참여도를 평가해주세요:
+
+**프로젝트 분류**: {project_type.upper()} 유형
+**프로젝트 정보**: {project_info}
+
+**평가 요청사항**:
+- 사용자 경험(UX) 품질 분석
+- 사용자 인터페이스(UI) 디자인 평가  
+- 참여 유도 요소 및 게임화 분석
+- 사용성과 전반적 만족도 평가
+- {project_type} 유형에 특화된 사용자 참여도 기준 적용
+
+이미 분류된 프로젝트 유형({project_type})을 고려하여 평가하고, 반드시 JSON 형식으로만 응답해주세요."""
+
+    def _validate_user_engagement_result(self, result: Dict[str, Any], project_type: str) -> Dict[str, Any]:
+        """
+        사용자 참여도 평가 결과를 검증하고 보완합니다.
+        
+        Args:
+            result: ChainUtils로 파싱된 기본 결과
+            project_type: 프로젝트 타입
+            
+        Returns:
+            Dict: 검증 및 보완된 결과
+        """
+        # 기본 필드 검증
+        validated_result = {
+            "score": ChainUtils.validate_score(result.get("score", 0)),
+            "reasoning": result.get("reasoning", ""),
             "suggestions": result.get("suggestions", []),
-            "engagement_analysis": result.get("engagement_analysis", {}),
-            "ux_strengths": result.get("ux_strengths", []),
-            "usability_issues": result.get("usability_issues", []),
-            "engagement_aspects": result.get("engagement_aspects", {})
+            "project_type": project_type,
+            "evaluation_method": result.get("evaluation_method", "llm_based_with_classification")
         }
         
-        # suggestions가 리스트가 아닌 경우 변환
-        if not isinstance(normalized_result["suggestions"], list):
-            normalized_result["suggestions"] = [str(normalized_result["suggestions"])]
+        # reasoning이 비어있거나 너무 짧은 경우 기본값 제공
+        if not validated_result["reasoning"] or len(validated_result["reasoning"]) < 20:
+            validated_result["reasoning"] = f"사용자 참여도를 {validated_result['score']}점으로 평가했습니다. {project_type} 유형 프로젝트의 특성을 고려한 평가입니다."
         
-        # 빈 suggestions인 경우 기본값 제공
-        if not normalized_result["suggestions"]:
-            normalized_result["suggestions"] = [
-                "직관적인 사용자 인터페이스 설계로 학습 곡선 최소화",
-                "개인화 기능과 맞춤형 경험 제공으로 참여도 향상",
-                "게임화 요소 도입으로 사용자 동기 부여 강화"
+        # suggestions가 비어있거나 부족한 경우 기본값 제공
+        if not validated_result["suggestions"] or len(validated_result["suggestions"]) < 2:
+            default_suggestions = self._get_default_suggestions(project_type)
+            validated_result["suggestions"] = default_suggestions
+        
+        # suggestions가 3개를 초과하는 경우 상위 3개만 선택
+        if len(validated_result["suggestions"]) > 3:
+            validated_result["suggestions"] = validated_result["suggestions"][:3]
+        
+        # 사용자 참여도 평가 특화 정보 추가
+        validated_result["evaluation_focus"] = self._get_evaluation_focus(project_type)
+        
+        return validated_result
+
+    def _get_default_suggestions(self, project_type: str) -> list:
+        """
+        프로젝트 타입별 기본 개선 제안사항을 반환합니다.
+        
+        Args:
+            project_type: 프로젝트 타입
+            
+        Returns:
+            list: 기본 개선 제안사항 목록
+        """
+        if project_type.lower() == 'painkiller':
+            return [
+                "사용자의 감정적 고통 해결을 위한 직관적이고 간단한 인터페이스 설계",
+                "접근성 문제 해결을 위한 다양한 플랫폼 지원 및 오프라인 기능 제공",
+                "치료적/교육적 기능의 사용성 개선을 통한 효과적인 문제 해결"
             ]
-        
-        return normalized_result
-    
-    def _validate_score(self, score: Any) -> float:
+        elif project_type.lower() == 'vitamin':
+            return [
+                "게임화 요소와 재미 요소를 통한 사용자 참여도 향상",
+                "커뮤니티 기능과 소셜 요소를 통한 소속감 및 몰입도 증대",
+                "개인화된 경험과 맞춤형 콘텐츠를 통한 사용자 만족도 개선"
+            ]
+        else:  # balanced
+            return [
+                "실용적 문제 해결과 즐거운 경험의 균형잡힌 사용자 인터페이스 설계",
+                "접근성과 편의성을 동시에 고려한 포용적 디자인 적용",
+                "사용자 니즈 충족과 참여 유도 요소의 조화로운 통합"
+            ]
+
+    def _get_evaluation_focus(self, project_type: str) -> str:
         """
-        점수를 검증하고 유효한 범위로 조정합니다.
+        프로젝트 타입별 평가 초점을 반환합니다.
         
         Args:
-            score: 원본 점수
+            project_type: 프로젝트 타입
             
         Returns:
-            float: 검증된 점수 (0.0-10.0)
+            str: 평가 초점 설명
         """
-        try:
-            score_float = float(score)
-            return max(0.0, min(10.0, score_float))
-        except (ValueError, TypeError):
-            self.logger.warning(f"유효하지 않은 점수 값: {score}, 기본값 5.0 사용")
-            return 5.0
-    
-    def _get_fallback_result(self, limitations: List[str] = None, project_type: str = "balanced") -> Dict[str, Any]:
+        if project_type.lower() == 'painkiller':
+            return "감정적 고통 해결과 접근성 개선에 중점을 둔 사용자 참여도 평가"
+        elif project_type.lower() == 'vitamin':
+            return "오락성과 사용자 만족도 향상에 중점을 둔 사용자 참여도 평가"
+        else:  # balanced
+            return "실용성과 즐거움의 균형을 고려한 종합적 사용자 참여도 평가"
+
+    def _get_user_engagement_fallback_result(self, error: Exception, project_type: str) -> Dict[str, Any]:
         """
-        오류 상황에서 사용할 기본 결과를 반환합니다.
+        사용자 참여도 평가 실패 시 특화된 fallback 결과를 반환합니다.
         
         Args:
-            limitations: 데이터 제한사항 목록
+            error: 발생한 오류
+            project_type: 프로젝트 타입
             
         Returns:
-            Dict: 기본 결과
+            Dict: 사용자 참여도 평가 특화 fallback 결과
         """
-        result = {
-            "score": 5.0,
-            "reasoning": "사용자 참여도 평가를 완료할 수 없어 기본 점수를 제공합니다. 추가 정보가 필요합니다.",
-            "suggestions": [
-                "사용자 중심의 디자인 원칙 적용",
-                "사용성 테스트를 통한 UX 개선",
-                "참여 유도를 위한 인터랙티브 요소 추가"
-            ],
-            "engagement_analysis": {
-                "user_experience": "정보 부족으로 분석 불가",
-                "user_interface": "정보 부족으로 분석 불가",
-                "engagement_features": "정보 부족으로 분석 불가",
-                "usability_satisfaction": "정보 부족으로 분석 불가"
-            },
-            "ux_strengths": ["평가 정보 부족"],
-            "usability_issues": ["사용자 참여도 분석을 위한 충분한 정보 부족"],
-            "engagement_aspects": {
-                "user_experience_quality": 5.0,
-                "interface_design_quality": 5.0,
-                "engagement_features": 5.0,
-                "usability_efficiency": 5.0,
-                "user_satisfaction_potential": 5.0
-            }
-        }
+        # 기본 오류 처리 결과 가져오기
+        base_result = ChainUtils.handle_llm_error(error, project_type)
         
-        if limitations:
-            result["data_limitations"] = "; ".join(limitations)
+        # 사용자 참여도 평가 특화 정보 추가
+        base_result.update({
+            "reasoning": f"사용자 참여도 평가 중 오류가 발생했습니다: {str(error)}. 기본 평가 점수를 제공합니다.",
+            "suggestions": self._get_default_suggestions(project_type),
+            "evaluation_focus": self._get_evaluation_focus(project_type),
+            "evaluation_method": "user_engagement_fallback"
+        })
         
-        return result
+        return base_result
+
+    def run(self):
+        """
+        사용자 참여도 분석을 실행하고 점수를 반환합니다.
+        
+        Returns:
+            float: 사용자 참여도 점수 (0-10)
+        """
+        # 기본 테스트용 프로젝트 정보
+        test_project = "AI 기반 사용자 맞춤형 학습 플랫폼 개발 프로젝트"
+        
+        result = self.invoke(test_project)
+        return result.get("score", 0)
 
     def __call__(self, data):
         """

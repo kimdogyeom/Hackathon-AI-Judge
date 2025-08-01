@@ -59,9 +59,9 @@ default_settings:
   # 가중치 합이 1.0 ± 이 값 범위를 벗어나면 자동 정규화 수행
   weight_sum_tolerance: 0.01
   
-  # 기본 프로젝트 유형 (분류 실패 시 사용)
-  # 분류기가 실패하거나 오류가 발생했을 때 사용할 기본 유형
-  default_project_type: "balanced"
+  # 오류 처리 설정
+  # 분류 실패시 기본값 사용하지 않고 예외 발생
+  raise_on_classification_failure: true
   
   # 로깅 설정
   log_weight_changes: true      # 가중치 변경 시 로그 기록

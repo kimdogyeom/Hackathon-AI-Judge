@@ -3,8 +3,8 @@
 classification:
   # 신뢰도 임계값 (0.0 - 1.0)
   # 이 값보다 낮으면 자동으로 Balanced 유형으로 분류되고 경고 메시지가 표시됩니다.
-  # 기본값: 0.7 (70% 신뢰도)
-  confidence_threshold: 0.7
+  # 기본값: 0.5 (50% 신뢰도) - 더 현실적인 분류를 위해 조정
+  confidence_threshold: 0.5
   
   # 분류 알고리즘 설정
   algorithm:

@@ -1,0 +1,84 @@
+classification:
+  confidence_threshold: 0.7
+  neutral_score: 0.5
+  # default_project_type 제거 - 분류 실패시 예외 발생해야 함
+data_processing:
+  enable_preprocessing: true
+  max_file_size_mb: 100
+  supported_formats:
+  - pdf
+  - docx
+  - pptx
+  - mp4
+  - avi
+  - mov
+  validate_input: true
+  validate_output: true
+error_handling:
+  continue_on_error: true
+  error_log_level: WARNING
+  max_retries: 3
+  retry_delay_seconds: 1
+evaluation:
+  decimal_places: 2
+  max_score: 10.0
+  min_score: 0.5
+  threshold: 0.7
+file_processing:
+  allowed_extensions:
+    document:
+    - pdf
+    - docx
+    - txt
+    - md
+    presentation:
+    - pptx
+    - ppt
+    - key
+    video:
+    - mp4
+    - mov
+    - avi
+    - wmv
+  max_file_size: 104857600
+  max_file_size_mb: 100
+  upload_limit: 10
+llm:
+  frequency_penalty: 0.0
+  max_tokens: 3000
+  temperature: 0.3
+  top_p: 1.0
+notifications:
+  enable_errors: true
+  enable_success: false
+  enable_warnings: true
+  notification_level: WARNING
+output:
+  decimal_places: 2
+  format: json
+  include_detailed_results: true
+  include_execution_time: true
+  korean_output: true
+runtime:
+  debug_mode: false
+  max_workers: 4
+  parallel_processing: true
+  performance_monitoring: true
+  verbose_logging: false
+security:
+  malware_scan: false
+  mask_sensitive_data: true
+  validate_input_data: true
+system:
+  description: 프로젝트 자료를 분석하여 유형을 분류하고 가중치를 적용한 평가를 제공하는 시스템
+  max_retries: 3
+  name: Project Type Evaluation System
+  retry_delay: 1.0
+  timeout: 2.0
+  version: 1.0.0
+weights:
+  default_weight: 0.111
+  chain_count: 9
+  weight_sum: 1.0
+  log_changes: true
+  tolerance: 0.01

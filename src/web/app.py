@@ -69,7 +69,6 @@ def main():
         
         return
         
-    st.title("🚀 프로젝트 평가 시스템")
     st.markdown("---")
     
     # 세션 상태 초기화
@@ -82,7 +81,7 @@ def main():
     
     # 사이드바 메뉴 (버튼 방식)
     with st.sidebar:
-        st.header("📋 메뉴")
+        st.header("메뉴")
         
         # 파일 업로드 버튼
         if st.button("📁 파일 업로드", use_container_width=True, 
@@ -113,7 +112,7 @@ def render_upload_page():
         
         # 파일 업로드
         document_file = st.file_uploader(
-            "📄 프로젝트 문서 (TXT/DOC/DOCX/RTF)",
+            "📄 프로젝트 문서 (TXT/DOC/DOCX)",
             type=['txt', 'doc', 'docx'],
             help="프로젝트 설명이 포함된 문서 파일을 업로드하세요"
         )
@@ -150,7 +149,7 @@ def render_upload_page():
                 st.warning("최소 1개 이상의 파일을 업로드해주세요.")
     
     with col2:
-        st.subheader("📋 업로드 가이드")
+        st.subheader("업로드 가이드")
         st.info("""
         **지원 파일 형식:**
         - 문서: TXT, DOC, DOCX (최대 100MB)
@@ -356,8 +355,8 @@ def run_analysis(document_file, presentation_file, video_file):
         execution_result = executor.execute_all(chain_input)
         
         # 결과 추출
-        evaluation_results = execution_result["results"]
-        error_count = execution_result["metadata"]["error_count"]
+        evaluation_results = execution_result.get("chain_results", {})
+        error_count = execution_result.get("metadata", {}).get("error_count", 0)
         
         # 오류 발생 체인에 대한 경고 표시
         for chain_name, result in evaluation_results.items():
@@ -382,6 +381,8 @@ def run_analysis(document_file, presentation_file, video_file):
 
         # 체인 실행기로 점수 추출 및 계산
         scores = executor.get_scores(evaluation_results)
+        final_score = executor.get_average_score(evaluation_results)
+        scores['final_score'] = final_score
 
         # 결과 구성
         results = {
@@ -440,7 +441,7 @@ def render_results_page():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        final_score = results.get('final_score', 0)
+        final_score = results.get('scores', {}).get('final_score', 0)
         st.metric("최종 점수", f"{final_score:.2f}/10")
     
     with col2:
@@ -478,7 +479,7 @@ def render_results_page():
     }
     
     # 탭으로 다양한 시각화 제공
-    tab1, tab2, tab3 = st.tabs(["📊 막대 차트", "🎯 레이더 차트"])
+    tab1, tab2 = st.tabs(["📊 막대 차트", "🎯 레이더 차트"])
     
     with tab1:
         if not PLOTLY_AVAILABLE:
@@ -486,8 +487,8 @@ def render_results_page():
             return
             
         # 막대 차트
-        categories = [category_names.get(cat, cat) for cat in scores.keys()]
-        original_scores = list(scores.values())
+        categories = [category_names.get(cat, cat) for cat in scores.keys() if cat != 'final_score']
+        original_scores = [score for cat, score in scores.items() if cat != 'final_score']
 
         fig = go.Figure()
         fig.add_trace(go.Bar(
@@ -510,7 +511,10 @@ def render_results_page():
     with tab2:
         # 레이더 차트
         fig = go.Figure()
-        
+
+        categories = [category_names.get(cat, cat) for cat in scores.keys() if cat != 'final_score']
+        original_scores = [score for cat, score in scores.items() if cat != 'final_score']
+
         fig.add_trace(go.Scatterpolar(
             r=original_scores,
             theta=categories,
@@ -530,7 +534,7 @@ def render_results_page():
             title="평가 항목별 점수 레이더 차트",
             height=500
         )
-        
+
         st.plotly_chart(fig, use_container_width=True, key="radar_chart")
 
     st.markdown("---")
@@ -543,14 +547,15 @@ def render_results_page():
         return
     
     df = pd.DataFrame({
-        '평가 항목': [category_names.get(cat, cat) for cat in scores.keys()],
-        '점수': [f"{scores[cat]:.2f}" for cat in scores.keys()],
-        '순위': range(1, len(scores) + 1)
+        '평가 항목': [category_names.get(cat, cat) for cat in scores.keys() if cat != 'final_score'],
+        '점수': [f"{scores[cat]:.2f}" for cat in scores.keys() if cat != 'final_score'],
+        '원본 점수': [scores[cat] for cat in scores.keys() if cat != 'final_score']
     })
     
     # 원본 점수 기준으로 정렬
     df = df.sort_values('원본 점수', ascending=False).reset_index(drop=True)
     df['순위'] = range(1, len(df) + 1)
+    df = df.drop(columns=['원본 점수'])
     
     st.dataframe(df, use_container_width=True)
     
@@ -595,23 +600,8 @@ def render_results_page():
             
             fig.update_layout(height=300)
             st.plotly_chart(fig, use_container_width=True, key="confidence_gauge")
-            
-            # PainKiller vs Vitamin 점수 비교
-            fig2 = go.Figure()
-            fig2.add_trace(go.Bar(
-                x=['PainKiller', 'Vitamin'],
-                y=[painkiller_score, vitamin_score],
-                marker_color=['red', 'green']
-            ))
-            
-            fig2.update_layout(
-                title='PainKiller vs Vitamin 점수',
-                yaxis_title='점수',
-                height=300
-            )
-            
-            st.plotly_chart(fig2, use_container_width=True, key="painkiller_vitamin_chart")
-        
+
+
         with col2:
             st.write("**분류 정보:**")
             st.info(f"""
@@ -661,10 +651,10 @@ def render_results_page():
                     fig.update_layout(height=300)
                     st.plotly_chart(fig, use_container_width=True, key=f"gauge_chart_{category}")
                     
-                    # 실행 시간
+                    # 분석 소요 시간
                     execution_time = result.get('execution_time', 0)
                     if execution_time:
-                        st.metric("실행 시간", f"{execution_time:.3f}초")
+                        st.metric("분석 소요 시간", f"{execution_time:.3f}초")
                 
                 with col2:
                     # 평가 근거
